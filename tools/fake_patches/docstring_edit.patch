@@ -1,0 +1,13 @@
+diff --git a/sqlglot/helper.py b/sqlglot/helper.py
+index 0000000..1111111 100644
+--- a/sqlglot/helper.py
++++ b/sqlglot/helper.py
+@@ -66,7 +66,7 @@
+ 
+ 
+ def seq_get(seq: Sequence[T], index: int) -> T | None:
+-    """Returns the value in `seq` at position `index`, or `None` if `index` is out of bounds."""
++    """Return the value at `index` in `seq`, or `None` when the index is out of range."""
+     try:
+         return seq[index]
+     except IndexError:

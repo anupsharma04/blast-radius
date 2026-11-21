@@ -1,0 +1,147 @@
+"""
+Generate realistic FAKE patches against sqlglot (pinned commit) for testing
+our selector's safety on kinds of change the sample set may not contain.
+
+These patches are ONLY used by tools/validate.py to find misses. Nothing in
+the selector or the maps is built from them.
+
+Usage (any OS):  python tools/make_fake_patches.py <path to pristine sqlglot checkout>
+Writes tools/fake_patches/<name>.patch and tools/fake_patches/kinds.json.
+"""
+
+import difflib
+import json
+import os
+import sys
+
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_patches")
+
+# (name, kind, file, operation, old text, new text)
+#   operation: "edit" (replace old with new; old must occur exactly once),
+#              "new" (create file with `new`), "delete" (remove file)
+EDITS = [
+    ("rename_function", "rename a module-level function (callers unchanged)",
+     "sqlglot/optimizer/eliminate_joins.py", "edit",
+     "def _join_is_used(scope: Scope, join: exp.Join, alias: str) -> bool:",
+     "def _join_used(scope: Scope, join: exp.Join, alias: str) -> bool:"),
+    ("rename_method", "rename a generator method (dispatch by name)",
+     "sqlglot/generators/duckdb.py", "edit",
+     "    def timeslice_sql(self, expression: exp.TimeSlice) -> str:",
+     "    def time_slice_sql(self, expression: exp.TimeSlice) -> str:"),
+    ("signature_required_arg", "function signature: optional arg becomes required",
+     "sqlglot/optimizer/normalize_identifiers.py", "edit",
+     "def normalize_identifiers(expression, dialect=None, store_original_column_identifiers=False):",
+     "def normalize_identifiers(expression, dialect, store_original_column_identifiers=False):"),
+    ("signature_default_value", "function signature: default value changed",
+     "sqlglot/optimizer/normalize_identifiers.py", "edit",
+     "def normalize_identifiers(expression, dialect=None, store_original_column_identifiers=False):",
+     "def normalize_identifiers(expression, dialect=None, store_original_column_identifiers=True):"),
+    ("import_removed", "import line removed",
+     "sqlglot/dialects/tsql.py", "edit",
+     "from sqlglot.tokens import TokenType\n", ""),
+    ("module_dict_entry", "class-level FUNCTIONS table entry changed",
+     "sqlglot/parsers/duckdb.py", "edit",
+     '"STRFTIME": build_formatted_time(exp.TimeToStr),',
+     '"STRFTIME": build_formatted_time(exp.StrToTime),'),
+    ("transforms_lambda", "lambda inside class-level TRANSFORMS dict changed",
+     "sqlglot/generators/drill.py", "edit",
+     'exp.CurrentTimestamp: lambda *_: "CURRENT_TIMESTAMP",',
+     'exp.CurrentTimestamp: lambda *_: "NOW()",'),
+    ("base_class_change", "class base class changed (Postgres -> MySQL)",
+     "sqlglot/dialects/materialize.py", "edit",
+     "from sqlglot.dialects.postgres import Postgres\n",
+     "from sqlglot.dialects.mysql import MySQL as Postgres\n"),
+    ("docstring_edit", "docstring text edited",
+     "sqlglot/helper.py", "edit",
+     '"""Returns the value in `seq` at position `index`, or `None` if `index` is out of bounds."""',
+     '"""Return the value at `index` in `seq`, or `None` when the index is out of range."""'),
+    ("comment_only_py", "comment added inside a function",
+     "sqlglot/generators/clickhouse.py", "edit",
+     "    asc, nulls_first = order\n",
+     "    # order is (ascending, nulls_first)\n    asc, nulls_first = order\n"),
+    ("comment_only_sql", "SQL '--' comment line edited in a fixture (diff shows '--- ')",
+     "tests/fixtures/optimizer/qualify_columns.sql", "edit",
+     "-- Qualify columns\n", "-- Qualify all columns\n"),
+    ("new_file", "new source file added",
+     "sqlglot/dialects/mydialect.py", "new", None,
+     "from sqlglot.dialects.dialect import Dialect\n\n\nclass MyDialect(Dialect):\n    pass\n"),
+    ("delete_file", "source file deleted",
+     "sqlglot/dialects/doris.py", "delete", None, None),
+    ("init_edit", "__init__.py edited",
+     "sqlglot/optimizer/__init__.py", "edit",
+     '"""Lazy re-exports from optimizer submodules.',
+     '"""Lazy re-exports from the optimizer submodules.'),
+    ("test_file_edit", "test file assertion changed",
+     "tests/test_transpile.py", "edit",
+     'self.assertEqual(transpile("SELECT 1 overwrite")[0], "SELECT 1 AS overwrite")',
+     'self.assertEqual(transpile("SELECT 1 overwrite")[0], "SELECT 1 AS overwrite_")'),
+    ("test_helper_edit", "shared test helper edited (tests/helpers.py)",
+     "tests/helpers.py", "edit",
+     'if line and not line.startswith("--")]',
+     'if line and not line.startswith("-")]'),
+    ("pyproject_edit", "non-Python config file edited",
+     "pyproject.toml", "edit",
+     'requires-python = ">= 3.9"', 'requires-python = ">= 3.10"'),
+    ("syntax_error", "syntax error inside a function body",
+     "sqlglot/generators/clickhouse.py", "edit",
+     "    if nulls_first:\n        self.unsupported(\"arraySort and arrayReverseSort",
+     "    if nulls_first\n        self.unsupported(\"arraySort and arrayReverseSort"),
+    ("insert_statement", "new statement inserted in a function body",
+     "sqlglot/optimizer/eliminate_joins.py", "edit",
+     "    inner_source = scope.sources.get(alias)\n",
+     "    inner_source = scope.sources.get(alias)\n    if join.kind == \"CROSS\":\n        return True\n"),
+    ("body_operator_swap", "operator swapped in a function body",
+     "sqlglot/generators/clickhouse.py", "edit",
+     'return self.func("arraySort" if asc else "arrayReverseSort", expression.this)',
+     'return self.func("arraySort" if not asc else "arrayReverseSort", expression.this)'),
+]
+
+
+def read(path):
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def make_diff(rel, old, new):
+    """Git-style unified diff for one file (old/new may be None)."""
+    a = old.splitlines(keepends=True) if old is not None else []
+    b = new.splitlines(keepends=True) if new is not None else []
+    head = [f"diff --git a/{rel} b/{rel}\n"]
+    if old is None:
+        head.append("new file mode 100644\n")
+    elif new is None:
+        head.append("deleted file mode 100644\n")
+    head.append("index 0000000..1111111" + ("" if old is None or new is None else " 100644") + "\n")
+    lines = list(difflib.unified_diff(a, b, fromfile="/dev/null" if old is None else f"a/{rel}",
+                                      tofile="/dev/null" if new is None else f"b/{rel}", n=3))
+    # difflib writes "@@ -1,N +1,M @@"; git uses the same format.
+    return "".join(head + [ln if ln.endswith("\n") else ln + "\n\\ No newline at end of file\n"
+                           for ln in lines])
+
+
+def main():
+    src = sys.argv[1]
+    os.makedirs(OUT, exist_ok=True)
+    kinds = {}
+    for name, kind, rel, op, old_text, new_text in EDITS:
+        path = os.path.join(src, rel)
+        if op == "new":
+            diff = make_diff(rel, None, new_text)
+        elif op == "delete":
+            diff = make_diff(rel, read(path), None)
+        else:
+            content = read(path)
+            count = content.count(old_text)
+            if count != 1:
+                raise SystemExit(f"{name}: expected 1 match in {rel}, found {count}")
+            diff = make_diff(rel, content, content.replace(old_text, new_text))
+        with open(os.path.join(OUT, name + ".patch"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(diff)
+        kinds[name] = kind
+    with open(os.path.join(OUT, "kinds.json"), "w") as f:
+        json.dump(kinds, f, indent=1)
+    print(f"wrote {len(EDITS)} patches to {OUT}")
+
+
+if __name__ == "__main__":
+    main()

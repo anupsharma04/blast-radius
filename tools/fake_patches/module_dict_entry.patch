@@ -1,0 +1,13 @@
+diff --git a/sqlglot/parsers/duckdb.py b/sqlglot/parsers/duckdb.py
+index 0000000..1111111 100644
+--- a/sqlglot/parsers/duckdb.py
++++ b/sqlglot/parsers/duckdb.py
+@@ -254,7 +254,7 @@
+             single_replace=True,
+         ),
+         "SHA256": lambda args: exp.SHA2(this=seq_get(args, 0), length=exp.Literal.number(256)),
+-        "STRFTIME": build_formatted_time(exp.TimeToStr),
++        "STRFTIME": build_formatted_time(exp.StrToTime),
+         "STRING_SPLIT": exp.Split.from_arg_list,
+         "STRING_SPLIT_REGEX": exp.RegexpSplit.from_arg_list,
+         "STRING_TO_ARRAY": exp.Split.from_arg_list,

@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generators/drill.py b/sqlglot/generators/drill.py
+index 0000000..1111111 100644
+--- a/sqlglot/generators/drill.py
++++ b/sqlglot/generators/drill.py
+@@ -64,7 +64,7 @@
+ 
+     TRANSFORMS = {
+         **generator.Generator.TRANSFORMS,
+-        exp.CurrentTimestamp: lambda *_: "CURRENT_TIMESTAMP",
++        exp.CurrentTimestamp: lambda *_: "NOW()",
+         exp.ArrayContains: rename_func("REPEATED_CONTAINS"),
+         exp.Create: preprocess([move_schema_columns_to_partitioned_by]),
+         exp.DateAdd: date_add_sql("ADD"),

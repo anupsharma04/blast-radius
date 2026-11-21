@@ -1,0 +1,13 @@
+diff --git a/tests/test_transpile.py b/tests/test_transpile.py
+index 0000000..1111111 100644
+--- a/tests/test_transpile.py
++++ b/tests/test_transpile.py
+@@ -31,7 +31,7 @@
+ 
+     def test_alias(self):
+         self.assertEqual(transpile("SELECT SUM(y) KEEP")[0], "SELECT SUM(y) AS KEEP")
+-        self.assertEqual(transpile("SELECT 1 overwrite")[0], "SELECT 1 AS overwrite")
++        self.assertEqual(transpile("SELECT 1 overwrite")[0], "SELECT 1 AS overwrite_")
+         self.assertEqual(transpile("SELECT 1 is")[0], "SELECT 1 AS is")
+         self.assertEqual(transpile("SELECT 1 current_time")[0], "SELECT 1 AS current_time")
+         self.assertEqual(

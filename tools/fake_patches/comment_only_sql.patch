@@ -1,0 +1,11 @@
+diff --git a/tests/fixtures/optimizer/qualify_columns.sql b/tests/fixtures/optimizer/qualify_columns.sql
+index 0000000..1111111 100644
+--- a/tests/fixtures/optimizer/qualify_columns.sql
++++ b/tests/fixtures/optimizer/qualify_columns.sql
+@@ -1,5 +1,5 @@
+ --------------------------------------
+--- Qualify columns
++-- Qualify all columns
+ --------------------------------------
+ SELECT a FROM x;
+ SELECT x.a AS a FROM x AS x;

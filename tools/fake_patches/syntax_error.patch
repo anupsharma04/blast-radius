@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generators/clickhouse.py b/sqlglot/generators/clickhouse.py
+index 0000000..1111111 100644
+--- a/sqlglot/generators/clickhouse.py
++++ b/sqlglot/generators/clickhouse.py
+@@ -39,7 +39,7 @@
+         return self.func("arraySort", expression.this)
+ 
+     asc, nulls_first = order
+-    if nulls_first:
++    if nulls_first
+         self.unsupported("arraySort and arrayReverseSort put NULLs last")
+     return self.func("arraySort" if asc else "arrayReverseSort", expression.this)
+ 

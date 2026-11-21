@@ -1,0 +1,22 @@
+{
+ "rename_function": "rename a module-level function (callers unchanged)",
+ "rename_method": "rename a generator method (dispatch by name)",
+ "signature_required_arg": "function signature: optional arg becomes required",
+ "signature_default_value": "function signature: default value changed",
+ "import_removed": "import line removed",
+ "module_dict_entry": "class-level FUNCTIONS table entry changed",
+ "transforms_lambda": "lambda inside class-level TRANSFORMS dict changed",
+ "base_class_change": "class base class changed (Postgres -> MySQL)",
+ "docstring_edit": "docstring text edited",
+ "comment_only_py": "comment added inside a function",
+ "comment_only_sql": "SQL '--' comment line edited in a fixture (diff shows '--- ')",
+ "new_file": "new source file added",
+ "delete_file": "source file deleted",
+ "init_edit": "__init__.py edited",
+ "test_file_edit": "test file assertion changed",
+ "test_helper_edit": "shared test helper edited (tests/helpers.py)",
+ "pyproject_edit": "non-Python config file edited",
+ "syntax_error": "syntax error inside a function body",
+ "insert_statement": "new statement inserted in a function body",
+ "body_operator_swap": "operator swapped in a function body"
+}

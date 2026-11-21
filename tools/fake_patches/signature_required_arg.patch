@@ -1,0 +1,13 @@
+diff --git a/sqlglot/optimizer/normalize_identifiers.py b/sqlglot/optimizer/normalize_identifiers.py
+index 0000000..1111111 100644
+--- a/sqlglot/optimizer/normalize_identifiers.py
++++ b/sqlglot/optimizer/normalize_identifiers.py
+@@ -21,7 +21,7 @@
+ ) -> exp.Identifier: ...
+ 
+ 
+-def normalize_identifiers(expression, dialect=None, store_original_column_identifiers=False):
++def normalize_identifiers(expression, dialect, store_original_column_identifiers=False):
+     """
+     Normalize identifiers by converting them to either lower or upper case,
+     ensuring the semantics are preserved in each case (e.g. by respecting

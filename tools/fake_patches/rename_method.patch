@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generators/duckdb.py b/sqlglot/generators/duckdb.py
+index 0000000..1111111 100644
+--- a/sqlglot/generators/duckdb.py
++++ b/sqlglot/generators/duckdb.py
+@@ -2424,7 +2424,7 @@
+             exp.replace_placeholders(self.ARRAY_BAG_TEMPLATE, arr1=arr1, arr2=arr2, cond=cond)
+         )
+ 
+-    def timeslice_sql(self, expression: exp.TimeSlice) -> str:
++    def time_slice_sql(self, expression: exp.TimeSlice) -> str:
+         """
+         Transform Snowflake's TIME_SLICE to DuckDB's time_bucket.
+ 

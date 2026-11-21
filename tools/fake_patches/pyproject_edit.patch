@@ -1,0 +1,13 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0000000..1111111 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -6,7 +6,7 @@
+ authors = [{ name = "Toby Mao", email = "toby.mao@gmail.com" }]
+ license = "MIT"
+ license-files = ["LICENSE"]
+-requires-python = ">= 3.9"
++requires-python = ">= 3.10"
+ classifiers = [
+     "Development Status :: 5 - Production/Stable",
+     "Intended Audience :: Developers",

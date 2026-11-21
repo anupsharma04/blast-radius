@@ -1,0 +1,11 @@
+diff --git a/sqlglot/dialects/mydialect.py b/sqlglot/dialects/mydialect.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/sqlglot/dialects/mydialect.py
+@@ -0,0 +1,5 @@
++from sqlglot.dialects.dialect import Dialect
++
++
++class MyDialect(Dialect):
++    pass

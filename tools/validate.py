@@ -1,0 +1,161 @@
+"""
+Safety harness: does our selector ever skip a test that really fails?
+
+For each patch in a folder (default tools/fake_patches/):
+  1. Copy a clean sqlglot checkout (pinned commit), apply the patch with
+     `git apply`, run the whole test suite with pytest -> the tests that
+     REALLY fail (ground truth). A test counts as failing if pytest reports
+     failure/error/timeout, or if it never ran (e.g. its file can't import).
+  2. Run our selector.py on the same patch.
+  3. Report every failing test the selector did NOT pick (a "miss").
+
+Runs inside the builder image (tools/Dockerfile.build), see tools/validate.sh.
+The fake patches are for TESTING ONLY; nothing here feeds the selector.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS = os.path.join(REPO, "tools")
+SQLGLOT = "/opt/sqlglot"        # clean checkout in the builder image
+WORK = "/tmp/validate"
+
+
+def log(*args):
+    print(*args, file=sys.stderr, flush=True)
+
+
+def ground_truth(name, patch_path, test_files, all_ids, workers, timeout):
+    """Apply the patch to a fresh copy and return (failing ids, note)."""
+    tree = os.path.join(WORK, "trees", name)
+    shutil.copytree(SQLGLOT, tree, symlinks=True)
+    note = ""
+    if patch_path:
+        r = subprocess.run(["git", "apply", "--whitespace=nowarn", patch_path], cwd=tree,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            shutil.rmtree(tree)
+            return None, "git apply failed: " + r.stderr.strip()[:200]
+    out = os.path.join(WORK, f"{name}.outcomes.json")
+    env = dict(os.environ, OUTCOME_OUT=out, PYTHONPATH=TOOLS)
+    # Only run test files that still exist (a patch may delete one; its tests
+    # then count as failing because they never run).
+    files = [f for f in test_files if os.path.exists(os.path.join(tree, f))]
+    cmd = [sys.executable, "-m", "pytest", "-p", "outcome_plugin", "-p", "no:cacheprovider",
+           "-q", "-n", str(workers), f"--timeout={timeout}", *files]
+    subprocess.run(cmd, cwd=tree, env=env, capture_output=True, text=True)
+    shutil.rmtree(tree)
+    if not os.path.exists(out):
+        return set(all_ids), "pytest crashed: every test counts as failing"
+    with open(out) as f:
+        rec = json.load(f)
+    outcomes = rec["outcomes"]
+    failing = {tid for tid in all_ids if outcomes.get(tid) in (None, "failed")}
+    if rec["collect_errors"]:
+        note = "collection errors: " + ", ".join(rec["collect_errors"])[:150]
+    return failing, note
+
+
+def run_selector(patch_paths, tests_json):
+    """Run selector.py on all patches at once; return {name: set of test numbers}."""
+    data = os.path.join(WORK, "data")
+    shutil.rmtree(data, ignore_errors=True)
+    os.makedirs(os.path.join(data, "commits"))
+    shutil.copy(tests_json, os.path.join(data, "tests.json"))
+    for name, path in patch_paths.items():
+        shutil.copy(path, os.path.join(data, "commits", name + ".patch"))
+    env = dict(os.environ, BLAST_DATA=data, BLAST_SRC=SQLGLOT)
+    t0 = time.process_time()
+    r = subprocess.run([sys.executable, os.path.join(REPO, "selector.py")], env=env,
+                       capture_output=True, text=True, check=True)
+    log(r.stderr)
+    selected = {}
+    for line in r.stdout.splitlines():
+        rec = json.loads(line)
+        selected[rec["commit"]] = {n for w in rec["workers"] for n in w}
+    return selected
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--patches", default=os.path.join(TOOLS, "fake_patches"))
+    ap.add_argument("--tests", default=os.path.join(REPO, "sample", "tests.json"))
+    ap.add_argument("--parallel", type=int, default=2, help="patches tested at once")
+    ap.add_argument("--workers", type=int, default=4, help="pytest-xdist workers per patch")
+    ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--out", default=os.path.join(TOOLS, "validate_results.json"))
+    args = ap.parse_args()
+
+    with open(args.tests) as f:
+        tests = json.load(f)["tests"]
+    id_to_num = {t["id"]: t["number"] for t in tests}
+    all_ids = list(id_to_num)
+    test_files = sorted({t["file"] for t in tests})
+
+    kinds = {}
+    kinds_path = os.path.join(args.patches, "kinds.json")
+    if os.path.exists(kinds_path):
+        with open(kinds_path) as f:
+            kinds = json.load(f)
+    patches = {fn[:-6]: os.path.join(args.patches, fn)
+               for fn in sorted(os.listdir(args.patches)) if fn.endswith(".patch")}
+
+    shutil.rmtree(WORK, ignore_errors=True)
+    os.makedirs(os.path.join(WORK, "trees"))
+    subprocess.run([sys.executable, "-m", "compileall", "-q", "sqlglot", "tests"], cwd=SQLGLOT)
+
+    selected = run_selector(patches, args.tests)
+
+    # Baseline: the unpatched code must pass, otherwise ground truth is noisy.
+    base_fail, _ = ground_truth("_baseline", None, test_files, all_ids, args.workers, args.timeout)
+    if base_fail:
+        log(f"WARNING baseline failures (ignored below): {sorted(base_fail)[:5]}")
+
+    def job(name):
+        t0 = time.time()
+        failing, note = ground_truth(name, patches[name], test_files, all_ids,
+                                     args.workers, args.timeout)
+        log(f"  {name}: {len(failing) if failing is not None else '?'} failing "
+            f"({time.time() - t0:.0f}s) {note}")
+        return name, failing, note
+
+    results, total_miss = [], 0
+    with ThreadPoolExecutor(args.parallel) as pool:
+        for name, failing, note in pool.map(job, patches):
+            if failing is None:
+                results.append({"patch": name, "kind": kinds.get(name, ""), "error": note})
+                continue
+            failing -= base_fail
+            fail_nums = {id_to_num[t] for t in failing}
+            missed = sorted(t for t in failing if id_to_num[t] not in selected[name])
+            total_miss += bool(missed)
+            results.append({"patch": name, "kind": kinds.get(name, ""),
+                            "selected": len(selected[name]), "failing": len(fail_nums),
+                            "missed": missed, "note": note})
+
+    with open(args.out, "w") as f:
+        json.dump(results, f, indent=1)
+
+    print(f"| patch | kind of change | tests selected | tests that failed | miss |")
+    print(f"|---|---|---|---|---|")
+    for r in results:
+        if "error" in r:
+            print(f"| {r['patch']} | {r['kind']} | - | - | ERROR: {r['error']} |")
+            continue
+        miss = f"**YES ({len(r['missed'])})**" if r["missed"] else "no"
+        print(f"| {r['patch']} | {r['kind']} | {r['selected']} | {r['failing']} | {miss} |")
+    print(f"\npatches with a miss: {total_miss} / {len(results)}")
+    for r in results:
+        if r.get("missed"):
+            print(f"  {r['patch']} missed: {r['missed'][:8]}")
+
+
+if __name__ == "__main__":
+    main()

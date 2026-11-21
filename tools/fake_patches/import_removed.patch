@@ -1,0 +1,12 @@
+diff --git a/sqlglot/dialects/tsql.py b/sqlglot/dialects/tsql.py
+index 0000000..1111111 100644
+--- a/sqlglot/dialects/tsql.py
++++ b/sqlglot/dialects/tsql.py
+@@ -8,7 +8,6 @@
+ )
+ from sqlglot.generators.tsql import TSQLGenerator
+ from sqlglot.parsers.tsql import TSQLParser
+-from sqlglot.tokens import TokenType
+ from sqlglot.typing.tsql import EXPRESSION_METADATA
+ 
+ 

@@ -1,0 +1,162 @@
+[
+ {
+  "patch": "base_class_change",
+  "kind": "class base class changed (Postgres -> MySQL)",
+  "selected": 315,
+  "failing": 2,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "body_operator_swap",
+  "kind": "operator swapped in a function body",
+  "selected": 1,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "comment_only_py",
+  "kind": "comment added inside a function",
+  "selected": 1292,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "comment_only_sql",
+  "kind": "SQL '--' comment line edited in a fixture (diff shows '--- ')",
+  "selected": 1,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "delete_file",
+  "kind": "source file deleted",
+  "selected": 1620,
+  "failing": 44,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "docstring_edit",
+  "kind": "docstring text edited",
+  "selected": 1617,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "import_removed",
+  "kind": "import line removed",
+  "selected": 1280,
+  "failing": 171,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "init_edit",
+  "kind": "__init__.py edited",
+  "selected": 1620,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "insert_statement",
+  "kind": "new statement inserted in a function body",
+  "selected": 29,
+  "failing": 9,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "module_dict_entry",
+  "kind": "class-level FUNCTIONS table entry changed",
+  "selected": 1516,
+  "failing": 8,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "new_file",
+  "kind": "new source file added",
+  "selected": 1620,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "pyproject_edit",
+  "kind": "non-Python config file edited",
+  "selected": 1620,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "rename_function",
+  "kind": "rename a module-level function (callers unchanged)",
+  "selected": 276,
+  "failing": 24,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "rename_method",
+  "kind": "rename a generator method (dispatch by name)",
+  "selected": 1516,
+  "failing": 3,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "signature_default_value",
+  "kind": "function signature: default value changed",
+  "selected": 1308,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "signature_required_arg",
+  "kind": "function signature: optional arg becomes required",
+  "selected": 1308,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "syntax_error",
+  "kind": "syntax error inside a function body",
+  "selected": 1292,
+  "failing": 150,
+  "missed": [],
+  "note": "collection errors: tests/dialects/test_clickhouse.py"
+ },
+ {
+  "patch": "test_file_edit",
+  "kind": "test file assertion changed",
+  "selected": 28,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "test_helper_edit",
+  "kind": "shared test helper edited (tests/helpers.py)",
+  "selected": 1377,
+  "failing": 2,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "transforms_lambda",
+  "kind": "lambda inside class-level TRANSFORMS dict changed",
+  "selected": 777,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ }
+]

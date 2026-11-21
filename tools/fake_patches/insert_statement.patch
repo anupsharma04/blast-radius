@@ -1,0 +1,13 @@
+diff --git a/sqlglot/optimizer/eliminate_joins.py b/sqlglot/optimizer/eliminate_joins.py
+index 0000000..1111111 100644
+--- a/sqlglot/optimizer/eliminate_joins.py
++++ b/sqlglot/optimizer/eliminate_joins.py
+@@ -60,6 +60,8 @@
+ 
+ def _should_eliminate_join(scope: Scope, join: exp.Join, alias: str) -> bool:
+     inner_source = scope.sources.get(alias)
++    if join.kind == "CROSS":
++        return True
+     return (
+         isinstance(inner_source, Scope)
+         and not _join_is_used(scope, join, alias)
