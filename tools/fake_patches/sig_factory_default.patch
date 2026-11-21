@@ -1,0 +1,13 @@
+diff --git a/sqlglot/dialects/dialect.py b/sqlglot/dialects/dialect.py
+index 0000000..1111111 100644
+--- a/sqlglot/dialects/dialect.py
++++ b/sqlglot/dialects/dialect.py
+@@ -1923,7 +1923,7 @@
+ def build_date_delta(
+     exp_class: Type[E],
+     unit_mapping: dict[str, str] | None = None,
+-    default_unit: str | None = "DAY",
++    default_unit: str | None = "WEEK",
+     supports_timezone: bool = False,
+ ) -> t.Callable[[BuilderArgs], E]:
+     def _builder(args: BuilderArgs) -> E:

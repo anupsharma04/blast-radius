@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generator.py b/sqlglot/generator.py
+index 0000000..1111111 100644
+--- a/sqlglot/generator.py
++++ b/sqlglot/generator.py
+@@ -1083,7 +1083,7 @@
+     def sep(self, sep: str = " ") -> str:
+         return f"{sep.strip()}\n" if self.pretty else sep
+ 
+-    def seg(self, sql: str, sep: str = " ") -> str:
++    def seg(self, sql: str, sep: str = "  ") -> str:
+         return f"{self.sep(sep)}{sql}"
+ 
+     def sanitize_comment(self, comment: str) -> str:

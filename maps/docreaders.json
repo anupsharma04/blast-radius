@@ -1,0 +1,16 @@
+{
+ "tokens": [
+  "__doc__",
+  "doctest",
+  "getdoc",
+  "pydoc",
+  "cleandoc",
+  "help("
+ ],
+ "test_files": [
+  "tests/leakcheck.py",
+  "tests/test_docs.py"
+ ],
+ "src_lines": {},
+ "import_time": []
+}

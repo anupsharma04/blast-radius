@@ -56,6 +56,14 @@
   "note": ""
  },
  {
+  "patch": "decorator_classmethod_removed",
+  "kind": "@classmethod removed from a method",
+  "selected": 13,
+  "failing": 13,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "delete_file",
   "kind": "source file deleted",
   "selected": 1620,
@@ -64,9 +72,41 @@
   "note": ""
  },
  {
+  "patch": "docstring_class_expr",
+  "kind": "class docstring of the base Expr edited (sqlglot copies __doc__ at import)",
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "docstring_doctest_example",
+  "kind": "expected output of a >>> example in a docstring changed",
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "docstring_edit",
   "kind": "docstring text edited",
-  "selected": 1617,
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "docstring_grows",
+  "kind": "docstring gets an extra line (shifts every line below)",
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "docstring_module",
+  "kind": "module docstring edited",
+  "selected": 0,
   "failing": 0,
   "missed": [],
   "note": ""
@@ -160,9 +200,41 @@
   "note": ""
  },
  {
+  "patch": "sig_factory_default",
+  "kind": "default of a factory called at import time to build tables",
+  "selected": 806,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "sig_method_default",
+  "kind": "default value of a widely used Generator method changed",
+  "selected": 740,
+  "failing": 523,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "sig_parser_method_default",
+  "kind": "default of a dialect parser method changed",
+  "selected": 19,
+  "failing": 9,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "sig_required_arg_method",
+  "kind": "method gets a new required argument",
+  "selected": 951,
+  "failing": 912,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "signature_default_value",
   "kind": "function signature: default value changed",
-  "selected": 1308,
+  "selected": 312,
   "failing": 0,
   "missed": [],
   "note": ""
@@ -170,7 +242,7 @@
  {
   "patch": "signature_required_arg",
   "kind": "function signature: optional arg becomes required",
-  "selected": 1308,
+  "selected": 312,
   "failing": 1,
   "missed": [],
   "note": ""
@@ -182,6 +254,14 @@
   "failing": 150,
   "missed": [],
   "note": "collection errors: tests/dialects/test_clickhouse.py"
+ },
+ {
+  "patch": "syntax_error_eager_module",
+  "kind": "syntax error in a module every test imports (diff.py)",
+  "selected": 1617,
+  "failing": 1600,
+  "missed": [],
+  "note": "collection errors: tests/dialects/test_athena.py, tests/dialects/test_bigquery.py, tests/dialects/test_clickhouse.py, tests/dialects/test_databricks.py, tests/dialects/t"
  },
  {
   "patch": "test_file_edit",

@@ -1,0 +1,13 @@
+diff --git a/sqlglot/diff.py b/sqlglot/diff.py
+index 0000000..1111111 100644
+--- a/sqlglot/diff.py
++++ b/sqlglot/diff.py
+@@ -104,7 +104,7 @@
+             new_node._hash = hash(new_node)
+             node_mapping[id(old_node)] = new_node
+ 
+-        return node_mapping
++        return node_mapping)
+ 
+     # if the source and target have any shared objects, that means there's an issue with the ast
+     # the algorithm won't work because the parent / hierarchies will be inaccurate

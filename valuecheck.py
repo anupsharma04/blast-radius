@@ -6,7 +6,8 @@ Runs in a CHILD process (so the selector itself never imports sqlglot).
       Runs the fingerprint several times to find values whose dict order
       changes from run to run; those are compared ignoring order.
 
-  python valuecheck.py check <src> <baseline.json.gz>   (patched files as JSON on stdin)
+  python valuecheck.py check <src> <baseline.json.gz>
+      (stdin: {"files": {path: patched text}, "defs": [[module, qualname], ...]})
       Runtime: import sqlglot with the patched files swapped in, fingerprint
       everything again, and print {"ok": bool, "changed": [...], "why": str}.
       ok=False means "something we can't attribute to class constants
@@ -125,7 +126,11 @@ def build_baseline(src, out):
           f"{len(still)} never stable, failed imports {base['failed']}", file=sys.stderr)
 
 
-def check(src, baseline_path, files):
+def check(src, baseline_path, request):
+    """request = {"files": {path: patched text}, "defs": [[module, qualname], ...]}
+    ("defs": the defs the patch changed; the selector runs their callers)."""
+    files = request["files"]
+    changed_defs = {tuple(d) for d in request.get("defs", ())}
     with gzip.open(baseline_path, "rt") as f:
         base = json.load(f)
     hook = PatchedSource(src, files)
@@ -148,10 +153,33 @@ def check(src, baseline_path, files):
     never = set(base["never_equal"])
     changed = sorted(k for k in old if old[k] != new[k] or k in never)
     track = set(base["trackable"])
-    bad = [k for k in changed if k not in track or k in never]
+    bad = [k for k in changed
+           if (k not in track or k in never) and not _is_changed_def(k, changed_defs)]
     if bad:
         return {"ok": False, "why": f"untrackable values changed: {bad[:5]}"}
-    return {"ok": True, "changed": changed}
+    # Values that ARE a changed def (e.g. a decorated method) are covered by
+    # the tests that ran that def; only report class constants.
+    return {"ok": True, "changed": [k for k in changed if k in track and k not in never]}
+
+
+def _is_changed_def(key, changed_defs):
+    """Is the (patched) value under `key` one of the defs the patch changed,
+    possibly wrapped (staticmethod/classmethod/property/functools.wraps)?"""
+    obj = _lookup(key)
+    todo, seen = [obj], set()
+    while todo:
+        o = todo.pop()
+        if id(o) in seen or o is _MISSING:
+            continue
+        seen.add(id(o))
+        if (getattr(o, "__module__", None), getattr(o, "__qualname__", None)) in changed_defs \
+                and callable(o):
+            return True
+        for attr in ("__func__", "__wrapped__", "fget", "fset", "fdel"):
+            inner = getattr(o, attr, None)
+            if inner is not None:
+                todo.append(inner)
+    return False
 
 
 def main():

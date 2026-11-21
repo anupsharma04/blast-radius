@@ -1,0 +1,12 @@
+diff --git a/sqlglot/expressions/core.py b/sqlglot/expressions/core.py
+index 0000000..1111111 100644
+--- a/sqlglot/expressions/core.py
++++ b/sqlglot/expressions/core.py
+@@ -533,7 +533,6 @@
+ 
+         return dump(self)
+ 
+-    @classmethod
+     def load(cls, obj: list[dict[str, Any]] | None) -> Expr:
+         """
+         Load a dict (as returned by `Expr.dump`) into an Expr instance.

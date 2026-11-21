@@ -1,0 +1,13 @@
+diff --git a/sqlglot/optimizer/simplify.py b/sqlglot/optimizer/simplify.py
+index 0000000..1111111 100644
+--- a/sqlglot/optimizer/simplify.py
++++ b/sqlglot/optimizer/simplify.py
+@@ -55,7 +55,7 @@
+         >>> import sqlglot
+         >>> expression = sqlglot.parse_one("TRUE AND TRUE")
+         >>> simplify(expression).sql()
+-        'TRUE'
++        'FALSE'
+ 
+     Args:
+         expression: expression to simplify

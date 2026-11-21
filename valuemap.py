@@ -152,6 +152,12 @@ class Fingerprinter:
         if t is set or t is frozenset:
             return (t.__name__, tuple(sorted(fp(x) for x in v)))
         if t is types.FunctionType:
+            q = v.__qualname__
+            if "<lambda>" not in q and "<locals>" not in q and "__wrapped__" not in v.__dict__:
+                # A plain `def` at module/class level: compare by NAME only.
+                # Changes to its signature/body are found from the patch
+                # (change_analysis.py) and select every test that ran it.
+                return ("FR", getattr(v, "__module__", "") or "", q)
             return ("F", v.__qualname__, self.code(v.__code__), fp(v.__defaults__),
                     fp(v.__kwdefaults__), fp(tuple(self.cell(c) for c in v.__closure__ or ())),
                     fp(v.__dict__))

@@ -1,0 +1,12 @@
+diff --git a/sqlglot/expressions/core.py b/sqlglot/expressions/core.py
+index 0000000..1111111 100644
+--- a/sqlglot/expressions/core.py
++++ b/sqlglot/expressions/core.py
+@@ -55,6 +55,7 @@
+     The base class for all expressions in a syntax tree. Each Expr encapsulates any necessary
+     context, such as its child expressions, their names (arg keys), and whether a given child expression
+     is optional or not.
++    (Extra line added to this docstring.)
+ 
+     Attributes:
+         key: a unique key for each class in the Expr hierarchy. This is useful for hashing

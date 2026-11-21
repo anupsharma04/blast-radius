@@ -48,8 +48,9 @@ BASELINE = os.environ.get("BLAST_BASELINE", os.path.join(APP, "baseline.json.gz"
 class ValueOnly:
     """A changed file where only class/module constant VALUES changed."""
 
-    def __init__(self, path, new_text, observers):
+    def __init__(self, path, new_text, observers, defs):
         self.path, self.new_text, self.observers = path, new_text, observers
+        self.defs = defs          # [[module, qualname]] of defs the patch changed
 
 
 def log(*args):
@@ -189,17 +190,18 @@ class Selector:
 
         self._sources, self._cov = {}, {}
         self._attrs = None
+        self._doc = None
 
     def numbers_from_mask(self, mask_hex_or_int):
         m = int(mask_hex_or_int, 16) if isinstance(mask_hex_or_int, str) else mask_hex_or_int
-        out, i = set(), 0
-        while m:
-            if m & 1:
-                n = self.bit_to_number[i]
-                if n is not None:
-                    out.add(n)
-            m >>= 1
-            i += 1
+        out = set()
+        bit_to_number = self.bit_to_number
+        while m:                                   # visit only the set bits
+            lsb = m & -m                           # lowest set bit
+            n = bit_to_number[lsb.bit_length() - 1]
+            if n is not None:
+                out.add(n)
+            m ^= lsb                               # clear it
         return out
 
     def file_level(self, path):
@@ -245,8 +247,16 @@ class Selector:
                 mask = ca.affected_mask(self.source_info(path), fd["hunks"], self.coverage(path))
                 return self.numbers_from_mask(mask) | observers
             except ca.ValueChange as e:
-                return ValueOnly(path, e.new_text, observers)   # decided in select()
+                # decided in select(); callers of changed defs are always run
+                module = path[:-3].replace("/", ".")
+                return ValueOnly(path, e.new_text,
+                                 observers | self.numbers_from_mask(e.def_mask),
+                                 [[module, d] for d in e.changed_defs])
             except ca.FileLevel as e:
+                doc = self.doc_reader_tests()
+                if doc is not None and ca.docstring_only(self.source_info(path), fd["hunks"]):
+                    log(f"    {path}: docstring text only -> docstring readers + observers")
+                    return doc | observers
                 log(f"    {path}: file level ({e})")
                 fl = self.file_level(path)
                 return RUN_ALL if fl is RUN_ALL else fl | observers
@@ -257,6 +267,32 @@ class Selector:
             return self.numbers_from_mask(self.fixtures[path])
         return self.file_level(path)
 
+    def doc_reader_tests(self):
+        """Tests that can notice a change to docstring TEXT (built by
+        tools/build_docmap.py), or None if the rule can't be used."""
+        if self._doc is None:
+            self._doc = False
+            path = os.path.join(MAPS, "docreaders.json")
+            if os.path.exists(path):
+                with open(path) as f:
+                    dm = json.load(f)
+                if not dm["import_time"]:           # a reader runs at import -> no rule
+                    out = set()
+                    for tf in dm["test_files"]:
+                        if tf in self.tests_by_file:        # a test file: all its tests
+                            out |= self.tests_by_file[tf]
+                        elif tf in self.deps:               # a helper: tests that use it
+                            fl = self.file_level(tf)
+                            if fl is RUN_ALL:
+                                return None
+                            out |= fl
+                    for src, lines in dm["src_lines"].items():
+                        cov = self.coverage(src)
+                        for ln in lines:
+                            out |= self.numbers_from_mask(cov.get(ln, 0))
+                    self._doc = out
+        return self._doc if self._doc is not False else None
+
     def attrs(self):
         """Class constant -> tests that read it (maps/attrs.json.gz)."""
         if self._attrs is None:
@@ -265,7 +301,7 @@ class Selector:
             self._attrs = (data["sets"], data["pairs"], set(data["tracked"]))
         return self._attrs
 
-    def value_tests(self, files):
+    def value_tests(self, request):
         """Tests that read a class constant the patch really changed, or
         None if that can't be decided safely (-> file level)."""
         if not os.path.exists(BASELINE):
@@ -273,7 +309,7 @@ class Selector:
         try:
             p = subprocess.run(
                 [sys.executable, "-s", os.path.join(APP, "valuecheck.py"), "check", SRC, BASELINE],
-                input=json.dumps(files), capture_output=True, text=True, timeout=60,
+                input=json.dumps(request), capture_output=True, text=True, timeout=60,
                 env=dict(os.environ, PYTHONHASHSEED="0", PYTHONDONTWRITEBYTECODE="1"))
             res = json.loads(p.stdout)
         except Exception as e:                      # noqa: BLE001
@@ -312,7 +348,8 @@ class Selector:
             # One check for all such files of this commit together.
             for v in value_only:
                 chosen |= v.observers
-            found = self.value_tests({v.path: v.new_text for v in value_only})
+            found = self.value_tests({"files": {v.path: v.new_text for v in value_only},
+                                      "defs": [d for v in value_only for d in v.defs]})
             if found is None:
                 for v in value_only:
                     log(f"    {v.path}: file level (constant values changed)")

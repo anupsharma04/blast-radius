@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generator.py b/sqlglot/generator.py
+index 0000000..1111111 100644
+--- a/sqlglot/generator.py
++++ b/sqlglot/generator.py
+@@ -1080,7 +1080,7 @@
+             raise UnsupportedError(message)
+         self.unsupported_messages.append(message)
+ 
+-    def sep(self, sep: str = " ") -> str:
++    def sep(self, sep: str) -> str:
+         return f"{sep.strip()}\n" if self.pretty else sep
+ 
+     def seg(self, sql: str, sep: str = " ") -> str:

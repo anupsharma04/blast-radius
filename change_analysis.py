@@ -51,9 +51,11 @@ class ValueChange(FileLevel):
     them (valuemap.py); if that isn't possible it treats this like any
     other FileLevel."""
 
-    def __init__(self, msg, new_text):
+    def __init__(self, msg, new_text, def_mask=0, changed_defs=()):
         super().__init__(msg)
         self.new_text = new_text
+        self.def_mask = def_mask            # tests that ran a changed def
+        self.changed_defs = list(changed_defs)   # dotted names, e.g. "Parser._parse_x"
 
 
 class PatchError(Exception):
@@ -209,11 +211,16 @@ def skeleton_equal(old_body, new_body, old_lines, new_lines):
 _ASSIGNS = (ast.Assign, ast.AnnAssign)
 
 
-def values_only_equal(old_body, new_body, old_lines, new_lines):
-    """True if two module/class bodies differ ONLY in the right-hand side of
-    plain assignments (same targets, same annotations). Functions must be
-    unchanged (identical text or identical AST); everything else (imports,
-    class headers, if-blocks, decorators, ...) must have identical structure."""
+def values_only_equal(old_body, new_body, old_lines, new_lines, changed_defs=None,
+                      prefix=""):
+    """True if two module/class bodies differ ONLY in
+      * the right-hand side of plain assignments (same targets/annotations), or
+      * a def (same name): its signature, defaults, decorators or body.
+    Changed defs are appended to `changed_defs` as (dotted name, old node);
+    the caller runs every test that executed them. Everything else
+    (imports, class headers, if-blocks, ...) must have identical structure.
+    The runtime fingerprint check (valuecheck.py) then confirms that nothing
+    computed at import time changed except tracked class constants."""
     if len(old_body) != len(new_body):
         return False
     for o, n in zip(old_body, new_body):
@@ -225,8 +232,19 @@ def values_only_equal(old_body, new_body, old_lines, new_lines):
             for field in ("name", "bases", "keywords", "decorator_list", "type_params"):
                 if skeleton(getattr(o, field, None)) != skeleton(getattr(n, field, None)):
                     return False
-            if not values_only_equal(o.body, n.body, old_lines, new_lines):
+            if not values_only_equal(o.body, n.body, old_lines, new_lines, changed_defs,
+                                     prefix + o.name + "."):
                 return False
+        elif isinstance(o, FUNC_TYPES):
+            if o.name != n.name or changed_defs is None:
+                return False
+            if ast.dump(o) != ast.dump(n):
+                # A body with no statement that records a line when run
+                # (only docstring / pass / ...) gives no coverage to go by.
+                if all(isinstance(s, ast.Pass) or (isinstance(s, ast.Expr)
+                       and isinstance(s.value, ast.Constant)) for s in o.body):
+                    return False
+                changed_defs.append((prefix + o.name, o))
         elif isinstance(o, ast.Assign):
             if ast.dump(ast.Module(o.targets, [])) != ast.dump(ast.Module(n.targets, [])):
                 return False
@@ -238,6 +256,30 @@ def values_only_equal(old_body, new_body, old_lines, new_lines):
         elif ast.dump(o) != ast.dump(n):          # functions, imports, ifs, ...
             return False
     return True
+
+
+def _without_docstrings(tree):
+    """ast.dump of `tree` with the text of every docstring (module, class and
+    function) replaced by a placeholder. Modifies `tree`."""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))                 and node.body and _is_docstring(node.body[0]):
+            node.body[0].value.value = "<docstring>"
+    return ast.dump(tree)
+
+
+def docstring_only(info, hunks):
+    """True if the patch changes nothing but the TEXT of existing docstrings
+    (comments/blank lines may change too). Then only code that reads __doc__
+    and the file's source observers can notice (see tools/build_docmap.py)."""
+    try:
+        new_lines, _, _ = apply_hunks(info.lines, hunks)
+        if _cookie_lines(new_lines) != _cookie_lines(info.lines):
+            return False
+        new_tree = ast.parse("\n".join(new_lines) + "\n", info.filename)
+        old_tree = ast.parse("\n".join(info.lines) + "\n", info.filename)
+    except (SyntaxError, ValueError, PatchError):
+        return False
+    return _without_docstrings(old_tree) == _without_docstrings(new_tree)
 
 
 def _moves_lines(hunks):
@@ -451,9 +493,19 @@ def affected_mask(info, hunks, cov):
     except (SyntaxError, ValueError) as e:
         raise FileLevel(f"syntax error: {e}")
     if not skeleton_equal(info.tree.body, new_tree.body, info.lines, new_lines):
-        if values_only_equal(info.tree.body, new_tree.body, info.lines, new_lines)                 and not _moves_lines(hunks):
-            raise ValueChange("only class/module constant values changed",
-                              "\n".join(new_lines) + "\n")
+        changed_defs = []
+        if values_only_equal(info.tree.body, new_tree.body, info.lines, new_lines,
+                             changed_defs) and not _moves_lines(hunks):
+            # Tests that ran any line of a changed def (callers). A changed
+            # signature/default/decorator only matters to callers, plus
+            # whatever it computes at import time (fingerprint check).
+            def_mask = 0
+            for _, node in changed_defs:
+                for ln in range(first_line(node.body[0]), node.end_lineno + 1):
+                    def_mask |= cov.get(ln, 0)
+            raise ValueChange("only constant values / function definitions changed",
+                              "\n".join(new_lines) + "\n", def_mask,
+                              [name for name, _ in changed_defs])
         raise FileLevel("code that runs at import time changed")
 
     # Which outermost functions and which outside-lambdas really changed?
