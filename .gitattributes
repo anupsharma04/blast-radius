@@ -1,0 +1,3 @@
+# Keep every text file with LF line endings, even on Windows.
+# Files run inside the Linux container break with CRLF endings.
+* text=auto eol=lf
