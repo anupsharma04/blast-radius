@@ -1,0 +1,12 @@
+diff --git a/sqlglot/time.py b/sqlglot/time.py
+--- a/sqlglot/time.py
++++ b/sqlglot/time.py
+@@ -600,7 +600,7 @@
+         "Indian/Mayotte",
+         "Indian/Reunion",
+         "Iran",
+-        "Israel",
++        "IsraelX",
+         "Jamaica",
+         "Japan",
+         "Kwajalein",

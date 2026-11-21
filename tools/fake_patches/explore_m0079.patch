@@ -1,0 +1,12 @@
+diff --git a/sqlglot/parser.py b/sqlglot/parser.py
+--- a/sqlglot/parser.py
++++ b/sqlglot/parser.py
+@@ -6382,7 +6382,7 @@
+                 break
+         return this
+ 
+-    def _parse_comparison(self, this: exp.Expr | None = None) -> exp.Expr | None:
++    def _parse_comparison(self, this: exp.Expr | None = 0) -> exp.Expr | None:
+         this = this or self._parse_range()
+         while self._match_set(self.COMPARISON):
+             comments = self._prev_comments

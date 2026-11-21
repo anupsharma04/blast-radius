@@ -51,13 +51,27 @@ def ground_truth(name, patch_path, test_files, all_ids, workers, timeout):
     files = [f for f in test_files if os.path.exists(os.path.join(tree, f))]
     cmd = [sys.executable, "-m", "pytest", "-p", "outcome_plugin", "-p", "no:cacheprovider",
            "-q", "-n", str(workers), f"--timeout={timeout}", *files]
-    subprocess.run(cmd, cwd=tree, env=env, capture_output=True, text=True)
+    r = subprocess.run(cmd, cwd=tree, env=env, capture_output=True, text=True)
     shutil.rmtree(tree)
     if not os.path.exists(out):
         return set(all_ids), "pytest crashed: every test counts as failing"
     with open(out) as f:
         rec = json.load(f)
     outcomes = rec["outcomes"]
+    # A worker killed by the machine (e.g. out of memory) is a broken MEASUREMENT,
+    # not a test failure: refuse the result instead of counting its tests
+    # as failing (seen once with a 3 GB memory cap: "539 failing" for a
+    # harmless edit).
+    output = r.stdout + r.stderr
+    if "crashed" in output or "MemoryError" in output:
+        return None, "INVALID ground truth: a test worker crashed (out of memory?)"
+    bad_files = {e.split("::")[0] for e in rec["collect_errors"]}
+    unexplained = [tid for tid in all_ids if tid not in outcomes
+                   and tid.split("::")[0] not in bad_files
+                   and os.path.exists(os.path.join(SQLGLOT, tid.split("::")[0]))
+                   and tid.split("::")[0] in files]
+    if len(unexplained) > 5:
+        return None, f"INVALID ground truth: {len(unexplained)} tests never reported"
     failing = {tid for tid in all_ids if outcomes.get(tid) in (None, "failed")}
     if rec["collect_errors"]:
         note = "collection errors: " + ", ".join(rec["collect_errors"])[:150]
@@ -157,7 +171,8 @@ def main():
                                      args.workers, args.timeout)
         log(f"  {name}: {len(failing) if failing is not None else '?'} failing "
             f"({time.time() - t0:.0f}s) {note}")
-        cache[k] = {"failing": None if failing is None else sorted(failing), "note": note}
+        if not note.startswith("INVALID"):         # never cache a broken measurement
+            cache[k] = {"failing": None if failing is None else sorted(failing), "note": note}
         return name, failing, note
 
     results, total_miss = [], 0

@@ -153,13 +153,45 @@ def check(src, baseline_path, request):
     never = set(base["never_equal"])
     changed = sorted(k for k in old if old[k] != new[k] or k in never)
     track = set(base["trackable"])
-    bad = [k for k in changed
-           if (k not in track or k in never) and not _is_changed_def(k, changed_defs)]
+    consts, funcs, globs, bad = [], [], [], []
+    for k in changed:
+        if k in never:
+            bad.append(k)
+        elif k in track:
+            consts.append(k)                    # class constant -> its readers
+        elif _is_changed_def(k, changed_defs):
+            continue                            # the selector runs its callers
+        elif (f := _plain_function(k)) is not None:
+            funcs.append(f)                     # e.g. default value changed -> callers
+        elif k.startswith("G|") and _is_data(_lookup(k)):
+            globs.append(k.split("|", 2)[1:])   # module constant -> tests using the name
+        else:
+            bad.append(k)
     if bad:
         return {"ok": False, "why": f"untrackable values changed: {bad[:5]}"}
-    # Values that ARE a changed def (e.g. a decorated method) are covered by
-    # the tests that ran that def; only report class constants.
-    return {"ok": True, "changed": [k for k in changed if k in track and k not in never]}
+    return {"ok": True, "changed": consts, "functions": funcs, "globals": globs}
+
+
+def _is_data(v):
+    """Plain data (numbers, strings, containers, enum members, compiled
+    regexes, ...): not a module, class, function or other callable."""
+    import types as _t
+    if v is _MISSING or isinstance(v, (type, _t.ModuleType)) or callable(v):
+        return False
+    return True
+
+
+def _plain_function(key):
+    """(module, qualname) if the value under `key` is a plain named def
+    (possibly a staticmethod/classmethod around it), else None."""
+    import types as _t
+    o = _lookup(key)
+    if isinstance(o, (staticmethod, classmethod)):
+        o = o.__func__
+    if isinstance(o, _t.FunctionType) and "<" not in o.__qualname__ \
+            and "__wrapped__" not in o.__dict__:
+        return [o.__module__, o.__qualname__]
+    return None
 
 
 def _is_changed_def(key, changed_defs):

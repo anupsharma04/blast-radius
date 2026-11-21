@@ -1,0 +1,12 @@
+diff --git a/sqlglot/generators/mysql.py b/sqlglot/generators/mysql.py
+--- a/sqlglot/generators/mysql.py
++++ b/sqlglot/generators/mysql.py
+@@ -100,7 +100,7 @@
+     "minutes": "minute",
+     "mins": "minute",
+     "seconds": "second",
+-    "secs": "second",
++    "secs": "secondX",
+ }
+ 
+ 

@@ -1,0 +1,12 @@
+diff --git a/sqlglot/typing/snowflake.py b/sqlglot/typing/snowflake.py
+--- a/sqlglot/typing/snowflake.py
++++ b/sqlglot/typing/snowflake.py
+@@ -400,7 +400,7 @@
+         }
+     },
+     **{
+-        expr_type: {"annotator": _annotate_math_with_float_decfloat}
++        expr_type: {"annotatorX": _annotate_math_with_float_decfloat}
+         for expr_type in {
+             exp.Acos,
+             exp.Asin,

@@ -120,6 +120,86 @@
   "note": ""
  },
  {
+  "patch": "explore_m0004",
+  "kind": "",
+  "selected": 1,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0038",
+  "kind": "",
+  "selected": 60,
+  "failing": 2,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0061",
+  "kind": "",
+  "selected": 395,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0079",
+  "kind": "",
+  "selected": 1494,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0121",
+  "kind": "",
+  "selected": 92,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0123",
+  "kind": "",
+  "selected": 395,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0163",
+  "kind": "",
+  "selected": 1617,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0355",
+  "kind": "",
+  "selected": 3,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0365",
+  "kind": "",
+  "selected": 395,
+  "failing": 1,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "explore_m0391",
+  "kind": "",
+  "selected": 1617,
+  "failing": 3,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "import_removed",
   "kind": "import line removed",
   "selected": 1280,

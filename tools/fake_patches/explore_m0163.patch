@@ -1,0 +1,12 @@
+diff --git a/sqlglot/tokenizer_core.py b/sqlglot/tokenizer_core.py
+--- a/sqlglot/tokenizer_core.py
++++ b/sqlglot/tokenizer_core.py
+@@ -515,7 +515,7 @@
+         token_type: TokenType,
+         text: str,
+         line: int = 1,
+-        col: int = 1,
++        col: int = 2,
+         start: int = 0,
+         end: int = 0,
+         comments: list[str] | None = None,

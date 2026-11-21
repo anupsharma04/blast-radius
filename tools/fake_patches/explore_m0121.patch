@@ -1,0 +1,12 @@
+diff --git a/sqlglot/optimizer/simplify.py b/sqlglot/optimizer/simplify.py
+--- a/sqlglot/optimizer/simplify.py
++++ b/sqlglot/optimizer/simplify.py
+@@ -1657,7 +1657,7 @@
+         self,
+         expression: exp.Expr,
+         simplifier: t.Callable[[exp.Expr, exp.Expr, exp.Expr], exp.Expr | None],
+-        root: bool = True,
++        root: bool = False,
+     ) -> exp.Expr:
+         if root or not expression.same_parent:
+             operands = []

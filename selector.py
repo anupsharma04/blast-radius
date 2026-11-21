@@ -191,6 +191,7 @@ class Selector:
         self._sources, self._cov = {}, {}
         self._attrs = None
         self._doc = None
+        self._names = None
 
     def numbers_from_mask(self, mask_hex_or_int):
         m = int(mask_hex_or_int, 16) if isinstance(mask_hex_or_int, str) else mask_hex_or_int
@@ -327,8 +328,58 @@ class Selector:
                 return None
             if name in pairs:                       # absent = no test read it
                 mask |= int(sets[pairs[name]], 16)
-        log(f"    value check: changed {[k[2:] for k in res['changed']]}")
-        return self.numbers_from_mask(mask)
+        # Functions whose value changed (e.g. a default computed from a
+        # changed constant): every test that ran them.
+        for module, qualname in res.get("functions", []):
+            m = self.def_coverage(module, qualname)
+            if m is None:
+                log(f"    value check: can't find {module}.{qualname}")
+                return None
+            mask |= m
+        # Module-level data constants: tests that ran code mentioning the
+        # name, plus test files that mention it (tools/build_namemap.py).
+        out = set()
+        if res.get("globals"):
+            nm = self.names()
+            for module, name in res["globals"]:
+                if name not in nm["names"]:
+                    log(f"    value check: unknown global {module}.{name}")
+                    return None
+                if name in nm["readers"]:
+                    mask |= int(nm["sets"][nm["readers"][name]], 16)
+                for tf in nm["test_files"].get(name, ()):
+                    if tf in self.tests_by_file:
+                        out |= self.tests_by_file[tf]
+                    elif tf in self.deps:
+                        fl = self.file_level(tf)
+                        if fl is RUN_ALL:
+                            return None
+                        out |= fl
+        log(f"    value check: changed {[k[2:] for k in res['changed']]}"
+            f" functions {res.get('functions')} globals {res.get('globals')}")
+        return self.numbers_from_mask(mask) | out
+
+    def names(self):
+        if self._names is None:
+            with gzip.open(os.path.join(MAPS, "names.json.gz"), "rt") as f:
+                self._names = json.load(f)
+            self._names["names"] = set(self._names["names"])
+        return self._names
+
+    def def_coverage(self, module, qualname):
+        """Tests that executed any line of the def `module.qualname`
+        (None if it isn't a def in sqlglot's sources)."""
+        path = module.replace(".", "/") + ".py"
+        if not module.startswith("sqlglot") or not os.path.exists(os.path.join(SRC, path)):
+            return None
+        info, cov = self.source_info(path), self.coverage(path)
+        mask, found = 0, False
+        for f in info.funcs:
+            if ".".join(name for name, _ in f.path) == qualname:
+                found = True
+                for ln in range(f.start, f.end + 1):
+                    mask |= cov.get(ln, 0)
+        return mask if found else None
 
     def select(self, patch_text):
         files = parse_patch(patch_text)
