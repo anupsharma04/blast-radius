@@ -13,16 +13,26 @@ doesn't do something at import time or change how a function is compiled.
 Those cases are detected and sent to the file-level fallback:
 
   * syntax error in the new file                       -> file level
-  * anything outside function bodies changed (module code, class bodies,
-    def lines, signatures, decorators, default values) -> file level
-  * comment/whitespace-only change (AST identical)     -> file level
+  * encoding declaration (# -*- coding: ...) changed   -> file level
+  * anything that runs at import time changed (module code, class bodies,
+    def lines, signatures, decorators, default values, table keys)
+                                                       -> file level
   * docstring change                                   -> file level
   * function becomes/stops being a generator or async  -> file level
   * local/closure variables of a function changed      -> whole function
   * lines inserted or deleted (not 1-for-1 replaced)   -> whole function
+  * body of a lambda outside functions changed (e.g. a TRANSFORMS entry)
+                                                       -> tests that called it
+  * comment/whitespace-only change (identical AST)     -> no tests from here
+
+In every case the selector ALSO adds the file's "source observers": tests
+that read the file as text or inspect its code objects (e.g. test_typing.py
+compares code objects, which include line numbers). Comments and shifted
+line numbers are invisible to everything else.
 """
 
 import ast
+import re
 
 FUNC_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef)
 
@@ -100,14 +110,54 @@ def function_body_lines(tree):
     return lines
 
 
+def outside_lambdas(tree):
+    """Lambdas that are NOT inside a function body (e.g. values in class-level
+    TRANSFORMS / FUNCTIONS tables), in a fixed order. The lambda object is
+    created at import time, but its BODY only runs when it is called."""
+    out = []
+
+    def collect(node):
+        if isinstance(node, ast.Lambda):
+            out.append(node)
+            return
+        if isinstance(node, FUNC_TYPES):
+            # Decorators/defaults/annotations are evaluated at definition
+            # time (outside the body), so look for lambdas there too.
+            parts = node.decorator_list + [node.args] + ([node.returns] if node.returns else [])
+            for p in parts + list(getattr(node, "type_params", [])):
+                collect(p)
+            return
+        for child in ast.iter_child_nodes(node):
+            collect(child)
+
+    collect(tree)
+    return out
+
+
+def lambda_lines(tree):
+    """Set of line numbers covered by lambdas outside function bodies."""
+    lines = set()
+    for lam in outside_lambdas(tree):
+        lines.update(range(lam.lineno, lam.end_lineno + 1))
+    return lines
+
+
+# Rule B switch: treat lambda bodies in class/module-level tables like small
+# functions (only tests that called the lambda), instead of file level.
+LAMBDA_RULE = False
+
+
 def skeleton(node):
-    """The file's structure with function BODIES left out. If this differs
-    between old and new, something outside function bodies changed."""
+    """The file's structure with function BODIES (and, with LAMBDA_RULE,
+    bodies of lambdas outside functions) left out. If this differs between
+    old and new, something that runs at import time changed."""
     if isinstance(node, FUNC_TYPES):
-        return (type(node).__name__, node.name, ast.dump(node.args),
-                tuple(ast.dump(d) for d in node.decorator_list),
-                ast.dump(node.returns) if node.returns else None,
-                tuple(ast.dump(t) for t in getattr(node, "type_params", [])))
+        return (type(node).__name__, node.name, skeleton(node.args),
+                tuple(skeleton(d) for d in node.decorator_list),
+                skeleton(node.returns) if node.returns else None,
+                tuple(skeleton(t) for t in getattr(node, "type_params", [])))
+    if LAMBDA_RULE and isinstance(node, ast.Lambda):
+        return ("Lambda", skeleton(node.args))
     if isinstance(node, ast.AST):
         return (type(node).__name__,) + tuple(skeleton(getattr(node, f, None))
                                                for f in node._fields)
@@ -116,12 +166,43 @@ def skeleton(node):
     return node
 
 
+def _text(lines, node):
+    """The full source lines a statement occupies (incl. decorators)."""
+    return lines[first_line(node) - 1:node.end_lineno]
+
+
+def skeleton_equal(old_body, new_body, old_lines, new_lines):
+    """Same answer as skeleton(old) == skeleton(new) for two statement lists,
+    but faster: a statement whose source text is identical parses to an
+    identical tree, so only statements whose text changed are examined
+    (class bodies are compared statement by statement the same way)."""
+    if len(old_body) != len(new_body):
+        return False
+    for o, n in zip(old_body, new_body):
+        if _text(old_lines, o) == _text(new_lines, n):
+            continue
+        if type(o) is not type(n):
+            return False
+        if isinstance(o, ast.ClassDef):
+            for field in ("name", "bases", "keywords", "decorator_list", "type_params"):
+                if skeleton(getattr(o, field, None)) != skeleton(getattr(n, field, None)):
+                    return False
+            if not skeleton_equal(o.body, n.body, old_lines, new_lines):
+                return False
+        elif skeleton(o) != skeleton(n):
+            return False
+    return True
+
+
 def code_shape(func_node, filename):
-    """Compile one function on its own and describe how its code objects
-    (incl. nested functions/lambdas) are built. Returns (shape, gen_flags)."""
-    module = ast.Module(body=[func_node], type_ignores=[])
+    """Compile one function (or lambda) on its own and describe how its code
+    objects (incl. nested functions/lambdas) are built. Returns (shape, gen_flags)."""
+    if isinstance(func_node, ast.Lambda):
+        module, mode = ast.Expression(body=func_node), "eval"
+    else:
+        module, mode = ast.Module(body=[func_node], type_ignores=[]), "exec"
     try:
-        code = compile(module, filename, "exec")
+        code = compile(module, filename, mode)
     except (SyntaxError, ValueError) as e:
         raise FileLevel(f"compile error: {e}")
     shape, flags = [], []
@@ -194,11 +275,30 @@ class SourceInfo:
         self.tree = ast.parse(source, filename)
         self.funcs = collect_functions(self.tree)
         self._skeleton = None
+        self._outer = None
+        self._dumps = {}
+        self._lambdas = None
 
     def skeleton(self):
         if self._skeleton is None:
             self._skeleton = skeleton(self.tree)
         return self._skeleton
+
+    def outer_funcs(self):
+        """path -> Func, for every OUTERMOST function (cached)."""
+        if self._outer is None:
+            self._outer = {f.path: f for f in self.funcs if f.parent is None}
+        return self._outer
+
+    def dump_of(self, path):
+        if path not in self._dumps:
+            self._dumps[path] = ast.dump(self.outer_funcs()[path].node)
+        return self._dumps[path]
+
+    def lambdas(self):
+        if self._lambdas is None:
+            self._lambdas = outside_lambdas(self.tree)
+        return self._lambdas
 
     def innermost(self, line):
         best = None
@@ -263,46 +363,66 @@ def apply_hunks(old_lines, hunks):
     return new, stmt_lines, func_lines
 
 
+# Rule A switch: a comment/whitespace-only change selects no tests here; the
+# caller always adds the file's "source observers" (tests that read the file
+# as text or inspect its code objects - the only tests that can notice).
+COMMENT_RULE = True
+
+_COOKIE = re.compile(r"^[ \t\f]*#.*?coding[:=]")
+
+
+def _cookie_lines(lines):
+    """Encoding declarations in the first two lines (they change how the
+    whole file is decoded, so they are never 'just a comment')."""
+    return [ln for ln in lines[:2] if _COOKIE.match(ln)]
+
+
 def affected_mask(info, hunks, cov):
     """Bitmask of tests affected by this file's hunks.
     info: SourceInfo of the original file.
     cov:  dict line -> int bitmask (tests that executed that line).
-    Raises FileLevel or PatchError when line-level isn't safe."""
+    Raises FileLevel or PatchError when line-level isn't safe.
+    (The caller adds the file's source observers to the result.)"""
     new_lines, stmt_lines, func_lines = apply_hunks(info.lines, hunks)
+    if _cookie_lines(new_lines) != _cookie_lines(info.lines):
+        raise FileLevel("encoding declaration changed")
     try:
         new_tree = ast.parse("\n".join(new_lines) + "\n", info.filename)
     except (SyntaxError, ValueError) as e:
         raise FileLevel(f"syntax error: {e}")
-    if skeleton(new_tree) != info.skeleton():
-        raise FileLevel("code outside function bodies changed")
+    if not skeleton_equal(info.tree.body, new_tree.body, info.lines, new_lines):
+        raise FileLevel("code that runs at import time changed")
 
-    new_funcs = {f.path: f for f in collect_functions(new_tree)}
-    changed = sorted(stmt_lines | func_lines)
+    # Which outermost functions and which outside-lambdas really changed?
+    # (The skeleton is equal, so every code change is inside one of them.)
+    new_funcs_list = collect_functions(new_tree)
+    new_funcs = {f.path: f for f in new_funcs_list}
+    old_outer = info.outer_funcs()
+    new_outer = {f.path: f for f in new_funcs_list if f.parent is None}
+    if set(old_outer) != set(new_outer):
+        raise FileLevel("functions added, removed or renamed")
 
-    # Every changed line must sit inside a function body.
-    owners = {}
-    for line in changed:
-        f = info.innermost(line)
-        if f is None:
-            raise FileLevel(f"line {line} is not inside a function body")
-        owners[line] = f
+    def same_text(old_node, new_node):
+        # Identical source text -> identical code; skip the expensive AST
+        # comparison (most functions in a file are untouched).
+        return (info.lines[first_line(old_node) - 1:old_node.end_lineno]
+                == new_lines[first_line(new_node) - 1:new_node.end_lineno])
 
-    # Compare each changed (outermost) function with its new version.
-    escalate, any_code_change = set(), False
-    for outer in {f.outermost() for f in owners.values()}:
-        new_outer = new_funcs.get(outer.path)
-        if new_outer is None:
-            raise FileLevel("function moved or renamed")
-        if ast.dump(outer.node) != ast.dump(new_outer.node):
-            any_code_change = True
-        old_shape, old_flags = code_shape(outer.node, info.filename)
-        new_shape, new_flags = code_shape(new_outer.node, info.filename)
-        if old_flags != new_flags:
-            raise FileLevel("generator/async status changed")
-        if old_shape != new_shape:
-            escalate.add(outer.path)                 # variables changed
-    if not any_code_change:
-        raise FileLevel("comment/whitespace-only change")
+    changed_outer = {p for p, of in old_outer.items()
+                     if not same_text(of.node, new_outer[p].node)
+                     and info.dump_of(p) != ast.dump(new_outer[p].node)}
+
+    old_lams, new_lams = info.lambdas(), outside_lambdas(new_tree)
+    if len(old_lams) != len(new_lams):
+        raise FileLevel("lambdas added or removed")
+    changed_lams = [i for i, lam in enumerate(new_lams)
+                    if not same_text(old_lams[i], lam)
+                    and ast.dump(old_lams[i]) != ast.dump(lam)]
+
+    if not changed_outer and not changed_lams:
+        if not COMMENT_RULE:
+            raise FileLevel("comment/whitespace-only change")
+        return 0                                    # only source observers can tell
 
     def span(lo, hi):
         m = 0
@@ -311,8 +431,46 @@ def affected_mask(info, hunks, cov):
         return m
 
     mask = 0
-    for line in changed:
-        f = owners[line]
+    # Changed lambda bodies: only tests that called the lambda can be affected.
+    for i in changed_lams:
+        if not LAMBDA_RULE:
+            raise FileLevel("lambda changed")
+        old_shape = code_shape(old_lams[i], info.filename)
+        new_shape = code_shape(new_lams[i], info.filename)
+        if old_shape != new_shape:
+            raise FileLevel("lambda variables/generator status changed")
+        mask |= span(old_lams[i].lineno, old_lams[i].end_lineno)
+
+    if not changed_outer:
+        return mask
+
+    # Changed functions: compare compiled shape with the new version.
+    escalate = set()
+    for path in changed_outer:
+        old_f = old_outer[path]
+        old_shape, old_flags = code_shape(old_f.node, info.filename)
+        new_shape, new_flags = code_shape(new_funcs[path].node, info.filename)
+        if old_flags != new_flags:
+            raise FileLevel("generator/async status changed")
+        if old_shape != new_shape:
+            escalate.add(path)                       # variables changed
+
+    # Map changed lines to the function they're in (old numbering). Lines
+    # outside functions or in unchanged functions are comment/whitespace
+    # edits (the skeleton/dump checks above prove it): nothing to run.
+    owners = {}
+    for line in sorted(stmt_lines | func_lines):
+        f = info.innermost(line)
+        if f is not None and f.outermost().path in changed_outer:
+            owners[line] = f
+
+    # Safety net: a changed function that no changed line points into
+    # (shouldn't happen) -> every test that ran any of it.
+    for path in changed_outer - {f.outermost().path for f in owners.values()}:
+        old_f = old_outer[path]
+        mask |= span(old_f.start, old_f.end)
+
+    for line, f in owners.items():
         outer = f.outermost()
         if outer.path in escalate:
             mask |= span(outer.start, outer.end)

@@ -66,7 +66,7 @@ def run_one(index, test_id, seed, tmp):
     with open(out) as f:
         outcomes = json.load(f)
     # Merge every process's record into one.
-    lines, opened, n_procs = {}, set(), 0
+    lines, opened, observed, n_procs = {}, set(), set(), 0
     for name in os.listdir(run_dir):
         if name == "outcomes.json":
             continue
@@ -76,10 +76,12 @@ def run_one(index, test_id, seed, tmp):
         for path, nums in r["lines"].items():
             lines.setdefault(path, set()).update(nums)
         opened.update(r["opened"])
+        observed.update(r["observed"])
     shutil.rmtree(run_dir)
     if n_procs == 0:
         raise SystemExit(f"no line records for {test_id} (sitecustomize not loaded?)")
-    rec = {"lines": lines, "opened": opened, "outcomes": outcomes, "procs": n_procs}
+    rec = {"lines": lines, "opened": opened, "observed": observed, "outcomes": outcomes,
+           "procs": n_procs}
     return index, test_id, seed, rec
 
 
@@ -107,6 +109,7 @@ def main():
 
     line_masks = {}      # "sqlglot/x.py" -> {line: bitmask}
     fixture_masks = {}   # "tests/fixtures/..." -> bitmask
+    observer_masks = {}  # "sqlglot/x.py" -> tests that read its text / code objects
     bad = []
     started = time.time()
     with ThreadPoolExecutor(args.jobs) as pool:
@@ -118,6 +121,8 @@ def main():
                     d[ln] = d.get(ln, 0) | bit
             for path in rec["opened"]:
                 fixture_masks[path] = fixture_masks.get(path, 0) | bit
+            for path in rec["observed"]:
+                observer_masks[path] = observer_masks.get(path, 0) | bit
             outcome = rec["outcomes"].get(tid)
             if outcome != "passed":
                 bad.append((seed, tid, outcome))
@@ -143,12 +148,16 @@ def main():
             if not masks:
                 continue
             with open(os.path.join(SQLGLOT, rel), encoding="utf-8") as f:
-                body = change_analysis.function_body_lines(change_analysis.ast.parse(f.read()))
+                tree = change_analysis.ast.parse(f.read())
+            # Keep lines inside function bodies and inside lambdas outside
+            # functions (e.g. in class-level TRANSFORMS tables): those only run
+            # when called. Other lines run at import time -> file-level map.
+            body = change_analysis.function_body_lines(tree) | change_analysis.lambda_lines(tree)
             sets, set_index, lines = [], {}, []
             for ln in sorted(masks):
                 total += 1
                 if ln not in body:
-                    continue          # import-time line: file-level map handles it
+                    continue
                 m = masks[ln]
                 if m not in set_index:
                     set_index[m] = len(sets)
@@ -164,11 +173,13 @@ def main():
         "test_ids": test_ids,
         "files": sorted(files),
         "fixtures": {p: format(m, "x") for p, m in sorted(fixture_masks.items())},
+        "observers": {p: format(m, "x") for p, m in sorted(observer_masks.items())},
     }
     with open(os.path.join(args.out, "linemap_index.json"), "w") as f:
         json.dump(index, f, separators=(",", ":"))
     log(f"done in {time.time() - started:.0f}s: {len(files)} source files, "
         f"{kept}/{total} covered lines kept, {len(fixture_masks)} fixture files, "
+        f"observers: { {p: bin(m).count('1') for p, m in observer_masks.items()} }, "
         f"{len(bad)} non-passing runs")
 
 

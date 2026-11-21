@@ -30,6 +30,7 @@ if _DIR:
     import sys
 
     _ROOT = os.path.realpath(os.environ.get("LINECOV_ROOT", os.getcwd()))
+    # (paths below are compared after os.path.realpath)
     _SQLGLOT = os.path.join(_ROOT, "sqlglot") + os.sep
     _lines = {}
     _opened = set()
@@ -41,9 +42,46 @@ if _DIR:
             _lines.setdefault(code.co_filename, set()).add(line)
         return _mon.DISABLE
 
+    # "Source observers": sqlglot .py files whose TEXT or CODE OBJECTS a test
+    # looked at (not just ran). Only these tests can notice a comment edit or
+    # a shift in line numbers.
+    _observed = set()
+    _IGNORED_CODE_READERS = {("_signature_from_function", "inspect.py"),
+                             ("overload", "typing.py")}
+
+    def _opened_by_import():
+        # True if the open comes from Python's import machinery.
+        f = sys._getframe(2)
+        while f is not None:
+            if f.f_code.co_filename.startswith("<frozen importlib"):
+                return True
+            f = f.f_back
+        return False
+
     def _audit(event, args):
         if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
-            _opened.add(os.fsdecode(args[0]))
+            path = os.fsdecode(args[0])
+            _opened.add(path)
+            if path.endswith(".py") and os.path.realpath(path).startswith(_SQLGLOT) \
+                    and not _opened_by_import():
+                _observed.add(os.path.realpath(path))       # read as text
+        elif event == "object.__getattr__" and args[1] == "__code__":
+            # Someone inspected a function's code object (line numbers live
+            # there). Record which module the function belongs to.
+            # Two standard-library readers are ignored because what they read
+            # can't change with a comment/line shift in any way tests see:
+            #  - inspect's signature code (sqlglot's optimizer calls
+            #    inspect.getfullargspec): reads only parameter names/kinds;
+            #  - typing.overload: keys a registry by line number, but that
+            #    registry is only read by typing.get_overloads(), which
+            #    neither sqlglot nor its tests use.
+            caller = sys._getframe(1).f_code
+            if (caller.co_name, os.path.basename(caller.co_filename)) in _IGNORED_CODE_READERS:
+                return
+            mod = sys.modules.get(getattr(args[0], "__module__", None) or "")
+            file = getattr(mod, "__file__", None)
+            if file and os.path.realpath(file).startswith(_SQLGLOT):
+                _observed.add(os.path.realpath(file))
 
     def _rel(path):
         full = os.path.realpath(os.path.join(_ROOT, path))
@@ -64,8 +102,9 @@ if _DIR:
             if rel and not rel.endswith((".py", ".pyc")) and "__pycache__" not in rel \
                     and os.path.isfile(os.path.join(_ROOT, rel)):
                 opened.add(rel)
+        observed = sorted(r for r in map(_rel, _observed) if r)
         with open(os.path.join(_DIR, f"{os.getpid()}.json"), "w") as f:
-            json.dump({"lines": lines, "opened": sorted(opened)}, f)
+            json.dump({"lines": lines, "opened": sorted(opened), "observed": observed}, f)
 
     _mon.use_tool_id(_TOOL, "blast-radius")
     _mon.register_callback(_TOOL, _mon.events.LINE, _on_line)

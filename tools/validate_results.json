@@ -8,6 +8,14 @@
   "note": ""
  },
  {
+  "patch": "blank_lines_in_function",
+  "kind": "blank lines/whitespace added inside a function",
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "body_operator_swap",
   "kind": "operator swapped in a function body",
   "selected": 1,
@@ -16,9 +24,17 @@
   "note": ""
  },
  {
+  "patch": "comment_in_class_table",
+  "kind": "comment added inside a class-level dict",
+  "selected": 0,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
   "patch": "comment_only_py",
   "kind": "comment added inside a function",
-  "selected": 1292,
+  "selected": 0,
   "failing": 0,
   "missed": [],
   "note": ""
@@ -26,6 +42,14 @@
  {
   "patch": "comment_only_sql",
   "kind": "SQL '--' comment line edited in a fixture (diff shows '--- ')",
+  "selected": 1,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "comment_shift_typing",
+  "kind": "comment line inserted at top of a typing module (shifts line numbers)",
   "selected": 1,
   "failing": 0,
   "missed": [],
@@ -42,6 +66,14 @@
  {
   "patch": "docstring_edit",
   "kind": "docstring text edited",
+  "selected": 1617,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "encoding_cookie",
+  "kind": "encoding declaration added to a file with non-ASCII text",
   "selected": 1617,
   "failing": 0,
   "missed": [],
@@ -68,6 +100,22 @@
   "kind": "new statement inserted in a function body",
   "selected": 29,
   "failing": 9,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "lambda_body_change",
+  "kind": "lambda body in class-level TRANSFORMS changed (used by tests)",
+  "selected": 1516,
+  "failing": 2,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "lambda_table_key",
+  "kind": "key of a TRANSFORMS lambda entry changed",
+  "selected": 1516,
+  "failing": 2,
   "missed": [],
   "note": ""
  },

@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generators/duckdb.py b/sqlglot/generators/duckdb.py
+index 0000000..1111111 100644
+--- a/sqlglot/generators/duckdb.py
++++ b/sqlglot/generators/duckdb.py
+@@ -1765,7 +1765,7 @@
+         exp.JSONValueArray: _json_extract_value_array_sql,
+         exp.Lateral: _explode_to_unnest_sql,
+         exp.LogicalOr: lambda self, e: self.func("BOOL_OR", _cast_to_boolean(e.this)),
+-        exp.LogicalAnd: lambda self, e: self.func("BOOL_AND", _cast_to_boolean(e.this)),
++        exp.LogicalOr: lambda self, e: self.func("BOOL_AND", _cast_to_boolean(e.this)),
+         exp.Select: transforms.preprocess(
+             [connect_by_to_recursive_cte, _seq_to_range_in_generator]
+         ),

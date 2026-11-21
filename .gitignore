@@ -1,3 +1,4 @@
 output.jsonl
 sample/
 __pycache__/
+tools/.validate_cache.json

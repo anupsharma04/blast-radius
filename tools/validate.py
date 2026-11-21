@@ -14,6 +14,7 @@ The fake patches are for TESTING ONLY; nothing here feeds the selector.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -91,6 +92,8 @@ def main():
     ap.add_argument("--workers", type=int, default=4, help="pytest-xdist workers per patch")
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--out", default=os.path.join(TOOLS, "validate_results.json"))
+    ap.add_argument("--cache", default=os.path.join(TOOLS, ".validate_cache.json"))
+    ap.add_argument("--no-cache", action="store_true", help="recompute all ground truth")
     args = ap.parse_args()
 
     with open(args.tests) as f:
@@ -113,17 +116,42 @@ def main():
 
     selected = run_selector(patches, args.tests)
 
+    # Ground truth depends only on (patch text, tests.json, pinned sqlglot), so
+    # cache it between runs of the harness. The cache lives outside git
+    # (.gitignore) and is never read by the selector.
+    with open(args.tests, "rb") as f:
+        tests_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+    cache = {}
+    if os.path.exists(args.cache) and not args.no_cache:
+        with open(args.cache) as f:
+            cache = json.load(f)
+
+    def key_of(path):
+        with open(path, "rb") as f:
+            return tests_hash + ":" + hashlib.sha256(f.read()).hexdigest()
+
     # Baseline: the unpatched code must pass, otherwise ground truth is noisy.
-    base_fail, _ = ground_truth("_baseline", None, test_files, all_ids, args.workers, args.timeout)
+    base_key = tests_hash + ":baseline"
+    if base_key in cache:
+        base_fail = set(cache[base_key]["failing"])
+    else:
+        base_fail, _ = ground_truth("_baseline", None, test_files, all_ids,
+                                    args.workers, args.timeout)
+        cache[base_key] = {"failing": sorted(base_fail), "note": ""}
     if base_fail:
         log(f"WARNING baseline failures (ignored below): {sorted(base_fail)[:5]}")
 
     def job(name):
+        k = key_of(patches[name])
+        if k in cache:
+            c = cache[k]
+            return name, (None if c["failing"] is None else set(c["failing"])), c["note"]
         t0 = time.time()
         failing, note = ground_truth(name, patches[name], test_files, all_ids,
                                      args.workers, args.timeout)
         log(f"  {name}: {len(failing) if failing is not None else '?'} failing "
             f"({time.time() - t0:.0f}s) {note}")
+        cache[k] = {"failing": None if failing is None else sorted(failing), "note": note}
         return name, failing, note
 
     results, total_miss = [], 0
@@ -140,6 +168,8 @@ def main():
                             "selected": len(selected[name]), "failing": len(fail_nums),
                             "missed": missed, "note": note})
 
+    with open(args.cache, "w") as f:
+        json.dump(cache, f)
     with open(args.out, "w") as f:
         json.dump(results, f, indent=1)
 

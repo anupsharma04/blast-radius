@@ -113,11 +113,12 @@ def parse_patch(text):
 
 # ---------------------------------------------------------------- workers
 
-def split_into_workers(tests, k):
-    # Greedy balancing: longest test first, to the least-loaded worker.
+def split_into_workers(ordered, k):
+    # Greedy balancing: longest test first (`ordered` is already sorted
+    # longest-first), each to the least-loaded worker.
     heap = [(0, i) for i in range(k)]          # (load in ms, worker index)
     workers = [[] for _ in range(k)]
-    for ms, num in sorted(tests, reverse=True):
+    for ms, num in ordered:
         load, i = heapq.heappop(heap)
         workers[i].append(num)
         heapq.heappush(heap, (load + ms, i))
@@ -128,9 +129,16 @@ def best_split(tests):
     # Try 1..8 workers; cost = slowest worker + 2000 ms per worker.
     if not tests:
         return []
+    ordered = sorted(tests, reverse=True)      # sort once, reuse for every k
+    longest = ordered[0][0]
     best_cost, best_workers = None, []
     for k in range(1, min(8, len(tests)) + 1):
-        workers, max_load = split_into_workers(tests, k)
+        # The slowest worker is at least the longest test, so k workers cost
+        # at least longest + 2000*k. Once that can't beat the best, more
+        # workers can't either: stop early.
+        if best_cost is not None and longest + 2000 * k >= best_cost:
+            break
+        workers, max_load = split_into_workers(ordered, k)
         cost = max_load + 2000 * k
         if best_cost is None or cost < best_cost:
             best_cost, best_workers = cost, workers
@@ -161,6 +169,7 @@ class Selector:
         self.bit_to_number = [number_of_id.get(tid) for tid in idx["test_ids"]]
         self.line_files = set(idx["files"])
         self.fixtures = idx["fixtures"]
+        self.observers = idx["observers"]
 
         # Safety net: tests the maps have never seen are always run.
         known = set(idx["test_ids"]) & set(t["id"] for t in tests
@@ -217,12 +226,16 @@ class Selector:
         if path not in self.deps:
             return RUN_ALL                         # unknown file
         if path.startswith("sqlglot/") and path.endswith(".py") and path in self.line_files:
+            # Tests that read this file's text or code objects can notice ANY
+            # edit (even a comment shifting line numbers): always include them.
+            observers = self.numbers_from_mask(self.observers.get(path, 0))
             try:
                 mask = ca.affected_mask(self.source_info(path), fd["hunks"], self.coverage(path))
-                return self.numbers_from_mask(mask)
+                return self.numbers_from_mask(mask) | observers
             except ca.FileLevel as e:
                 log(f"    {path}: file level ({e})")
-                return self.file_level(path)
+                fl = self.file_level(path)
+                return RUN_ALL if fl is RUN_ALL else fl | observers
             except ca.PatchError as e:
                 log(f"    {path}: patch does not apply ({e}) -> all")
                 return RUN_ALL

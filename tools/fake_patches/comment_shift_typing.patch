@@ -1,0 +1,11 @@
+diff --git a/sqlglot/typing/snowflake.py b/sqlglot/typing/snowflake.py
+index 0000000..1111111 100644
+--- a/sqlglot/typing/snowflake.py
++++ b/sqlglot/typing/snowflake.py
+@@ -1,4 +1,6 @@
+ from __future__ import annotations
++
++# Snowflake-specific type annotators
+ 
+ import typing as t
+ 

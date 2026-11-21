@@ -18,5 +18,11 @@
  "pyproject_edit": "non-Python config file edited",
  "syntax_error": "syntax error inside a function body",
  "insert_statement": "new statement inserted in a function body",
+ "comment_shift_typing": "comment line inserted at top of a typing module (shifts line numbers)",
+ "blank_lines_in_function": "blank lines/whitespace added inside a function",
+ "encoding_cookie": "encoding declaration added to a file with non-ASCII text",
+ "lambda_body_change": "lambda body in class-level TRANSFORMS changed (used by tests)",
+ "lambda_table_key": "key of a TRANSFORMS lambda entry changed",
+ "comment_in_class_table": "comment added inside a class-level dict",
  "body_operator_swap": "operator swapped in a function body"
 }
