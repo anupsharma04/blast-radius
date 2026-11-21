@@ -1,0 +1,13 @@
+diff --git a/sqlglot/dialects/dialect.py b/sqlglot/dialects/dialect.py
+index 0000000..1111111 100644
+--- a/sqlglot/dialects/dialect.py
++++ b/sqlglot/dialects/dialect.py
+@@ -84,7 +84,7 @@
+     "\\f": "\f",
+     "\\n": "\n",
+     "\\r": "\r",
+-    "\\t": "\t",
++    "\\t": "\v",
+     "\\v": "\v",
+     "\\\\": "\\",
+ }

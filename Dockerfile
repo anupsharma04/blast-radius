@@ -12,6 +12,9 @@ p='sqlglot-${COMMIT}/'; \
 t.extractall('/tmp/x', members=[m for m in t.getmembers() if m.name.startswith(p+'sqlglot/') and m.name.endswith('.py')], filter='data')" \
  && mkdir -p /app/src && mv /tmp/x/sqlglot-${COMMIT}/sqlglot /app/src/sqlglot && rm -rf /tmp/x
 
-COPY selector.py change_analysis.py /app/
+COPY selector.py change_analysis.py valuemap.py valuecheck.py /app/
 COPY maps /app/maps
+# Precompile sqlglot (faster imports for the runtime value check), then
+# fingerprint the ORIGINAL class constants once (valuecheck.py / valuemap.py).
+RUN python -m compileall -q /app/src  && python /app/valuecheck.py baseline /app/src /app/baseline.json.gz
 CMD ["python", "/app/selector.py"]

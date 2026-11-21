@@ -1,0 +1,13 @@
+diff --git a/sqlglot/generator.py b/sqlglot/generator.py
+index 0000000..1111111 100644
+--- a/sqlglot/generator.py
++++ b/sqlglot/generator.py
+@@ -723,7 +723,7 @@
+ 
+     STRUCT_DELIMITER: t.ClassVar = ("<", ">")
+ 
+-    PARAMETER_TOKEN = "@"
++    PARAMETER_TOKEN = "$"
+     NAMED_PLACEHOLDER_TOKEN = ":"
+ 
+     EXPRESSION_PRECEDES_PROPERTIES_CREATABLES: t.ClassVar[set[str]] = set()

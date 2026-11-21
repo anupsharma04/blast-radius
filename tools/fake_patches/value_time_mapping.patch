@@ -1,0 +1,13 @@
+diff --git a/sqlglot/dialects/postgres.py b/sqlglot/dialects/postgres.py
+index 0000000..1111111 100644
+--- a/sqlglot/dialects/postgres.py
++++ b/sqlglot/dialects/postgres.py
+@@ -50,7 +50,7 @@
+         "FMMM": "%-m",  # 1
+         "FMSS": "%-S",  # Second
+         "HH12": "%I",  # 09
+-        "HH24": "%H",  # 09
++        "HH24": "%I",  # 09
+         "iw": "%V",  # ISO 8601 week of year
+         "IW": "%V",  # ISO 8601 week of year
+         "iyyy": "%G",  # ISO 8601 week-numbering year

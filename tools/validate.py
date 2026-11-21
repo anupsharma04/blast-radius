@@ -72,7 +72,13 @@ def run_selector(patch_paths, tests_json):
     shutil.copy(tests_json, os.path.join(data, "tests.json"))
     for name, path in patch_paths.items():
         shutil.copy(path, os.path.join(data, "commits", name + ".patch"))
-    env = dict(os.environ, BLAST_DATA=data, BLAST_SRC=SQLGLOT)
+    # Fingerprints of the clean checkout for the constant-value check (the
+    # docker image makes the same file at build time; see Dockerfile).
+    baseline = os.path.join(WORK, "baseline.json.gz")
+    if not os.path.exists(baseline):
+        subprocess.run([sys.executable, os.path.join(REPO, "valuecheck.py"), "baseline",
+                        SQLGLOT, baseline], check=True)
+    env = dict(os.environ, BLAST_DATA=data, BLAST_SRC=SQLGLOT, BLAST_BASELINE=baseline)
     t0 = time.process_time()
     r = subprocess.run([sys.executable, os.path.join(REPO, "selector.py")], env=env,
                        capture_output=True, text=True, check=True)

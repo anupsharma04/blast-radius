@@ -106,7 +106,7 @@
  {
   "patch": "lambda_body_change",
   "kind": "lambda body in class-level TRANSFORMS changed (used by tests)",
-  "selected": 1516,
+  "selected": 377,
   "failing": 2,
   "missed": [],
   "note": ""
@@ -114,7 +114,7 @@
  {
   "patch": "lambda_table_key",
   "kind": "key of a TRANSFORMS lambda entry changed",
-  "selected": 1516,
+  "selected": 377,
   "failing": 2,
   "missed": [],
   "note": ""
@@ -122,7 +122,7 @@
  {
   "patch": "module_dict_entry",
   "kind": "class-level FUNCTIONS table entry changed",
-  "selected": 1516,
+  "selected": 126,
   "failing": 8,
   "missed": [],
   "note": ""
@@ -202,8 +202,80 @@
  {
   "patch": "transforms_lambda",
   "kind": "lambda inside class-level TRANSFORMS dict changed",
-  "selected": 777,
+  "selected": 32,
   "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_arg_types",
+  "kind": "arg_types of a core expression changed",
+  "selected": 401,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_base_generator_flag",
+  "kind": "base Generator class flag changed (inherited by all)",
+  "selected": 561,
+  "failing": 13,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_enum_member",
+  "kind": "class constant switched to another Enum member",
+  "selected": 291,
+  "failing": 3,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_module_constant",
+  "kind": "module-level constant dict entry changed",
+  "selected": 1617,
+  "failing": 4,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_parameter_token",
+  "kind": "string constant on the base Generator changed",
+  "selected": 19,
+  "failing": 19,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_reorder_entries",
+  "kind": "two entries of a class dict swapped (moved lines)",
+  "selected": 1423,
+  "failing": 0,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_scalar_dialect",
+  "kind": "class constant (int) changed on a dialect",
+  "selected": 4,
+  "failing": 2,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_time_mapping",
+  "kind": "entry of a class dict that feeds import-time derived tables",
+  "selected": 15,
+  "failing": 3,
+  "missed": [],
+  "note": ""
+ },
+ {
+  "patch": "value_tokenizer_quotes",
+  "kind": "tokenizer list constant changed (derived at import)",
+  "selected": 235,
+  "failing": 6,
   "missed": [],
   "note": ""
  }

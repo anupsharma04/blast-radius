@@ -1,0 +1,14 @@
+diff --git a/sqlglot/dialects/postgres.py b/sqlglot/dialects/postgres.py
+index 0000000..1111111 100644
+--- a/sqlglot/dialects/postgres.py
++++ b/sqlglot/dialects/postgres.py
+@@ -21,8 +21,8 @@
+     NULL_ORDERING = "nulls_are_large"
+     SUPPORTS_LIMIT_ALL = True
+     COLUMN_ALIAS_PRECEDENCE = {
++        exp.Having: AliasPrecedence.SOURCE,
+         exp.Distinct: AliasPrecedence.SOURCE,
+-        exp.Having: AliasPrecedence.SOURCE,
+         exp.Order: AliasPrecedence.SOURCE,
+         exp.Qualify: AliasPrecedence.SOURCE,
+     }

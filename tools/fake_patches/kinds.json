@@ -24,5 +24,14 @@
  "lambda_body_change": "lambda body in class-level TRANSFORMS changed (used by tests)",
  "lambda_table_key": "key of a TRANSFORMS lambda entry changed",
  "comment_in_class_table": "comment added inside a class-level dict",
- "body_operator_swap": "operator swapped in a function body"
+ "body_operator_swap": "operator swapped in a function body",
+ "value_scalar_dialect": "class constant (int) changed on a dialect",
+ "value_time_mapping": "entry of a class dict that feeds import-time derived tables",
+ "value_tokenizer_quotes": "tokenizer list constant changed (derived at import)",
+ "value_enum_member": "class constant switched to another Enum member",
+ "value_base_generator_flag": "base Generator class flag changed (inherited by all)",
+ "value_arg_types": "arg_types of a core expression changed",
+ "value_module_constant": "module-level constant dict entry changed",
+ "value_reorder_entries": "two entries of a class dict swapped (moved lines)",
+ "value_parameter_token": "string constant on the base Generator changed"
 }

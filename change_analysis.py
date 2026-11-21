@@ -44,6 +44,18 @@ class FileLevel(Exception):
     """Raised when line-level selection isn't safe for this file."""
 
 
+class ValueChange(FileLevel):
+    """Only the VALUES of class/module-level assignments changed (e.g.
+    `WEEK_OFFSET = -1` -> `-2`). The selector can then ask valuecheck.py
+    which class constants really changed and run only the tests that read
+    them (valuemap.py); if that isn't possible it treats this like any
+    other FileLevel."""
+
+    def __init__(self, msg, new_text):
+        super().__init__(msg)
+        self.new_text = new_text
+
+
 class PatchError(Exception):
     """Raised when the patch doesn't apply cleanly to the original source."""
 
@@ -192,6 +204,54 @@ def skeleton_equal(old_body, new_body, old_lines, new_lines):
         elif skeleton(o) != skeleton(n):
             return False
     return True
+
+
+_ASSIGNS = (ast.Assign, ast.AnnAssign)
+
+
+def values_only_equal(old_body, new_body, old_lines, new_lines):
+    """True if two module/class bodies differ ONLY in the right-hand side of
+    plain assignments (same targets, same annotations). Functions must be
+    unchanged (identical text or identical AST); everything else (imports,
+    class headers, if-blocks, decorators, ...) must have identical structure."""
+    if len(old_body) != len(new_body):
+        return False
+    for o, n in zip(old_body, new_body):
+        if _text(old_lines, o) == _text(new_lines, n):
+            continue
+        if type(o) is not type(n):
+            return False
+        if isinstance(o, ast.ClassDef):
+            for field in ("name", "bases", "keywords", "decorator_list", "type_params"):
+                if skeleton(getattr(o, field, None)) != skeleton(getattr(n, field, None)):
+                    return False
+            if not values_only_equal(o.body, n.body, old_lines, new_lines):
+                return False
+        elif isinstance(o, ast.Assign):
+            if ast.dump(ast.Module(o.targets, [])) != ast.dump(ast.Module(n.targets, [])):
+                return False
+        elif isinstance(o, ast.AnnAssign):
+            if (ast.dump(o.target) != ast.dump(n.target) or o.simple != n.simple
+                    or ast.dump(o.annotation) != ast.dump(n.annotation)
+                    or (o.value is None) != (n.value is None)):
+                return False
+        elif ast.dump(o) != ast.dump(n):          # functions, imports, ifs, ...
+            return False
+    return True
+
+
+def _moves_lines(hunks):
+    """True if some removed line comes back as an added line (entries were
+    moved/reordered). The value check ignores the order of some containers,
+    so such patches must not rely on it."""
+    removed, added = set(), set()
+    for _, _, body in hunks:
+        for text in body:
+            if text[:1] == "-" and text[1:].strip():
+                removed.add(text[1:].strip())
+            elif text[:1] == "+" and text[1:].strip():
+                added.add(text[1:].strip())
+    return bool(removed & added)
 
 
 def code_shape(func_node, filename):
@@ -391,6 +451,9 @@ def affected_mask(info, hunks, cov):
     except (SyntaxError, ValueError) as e:
         raise FileLevel(f"syntax error: {e}")
     if not skeleton_equal(info.tree.body, new_tree.body, info.lines, new_lines):
+        if values_only_equal(info.tree.body, new_tree.body, info.lines, new_lines)                 and not _moves_lines(hunks):
+            raise ValueChange("only class/module constant values changed",
+                              "\n".join(new_lines) + "\n")
         raise FileLevel("code that runs at import time changed")
 
     # Which outermost functions and which outside-lambdas really changed?

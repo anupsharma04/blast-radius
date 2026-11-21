@@ -1,0 +1,13 @@
+diff --git a/sqlglot/expressions/core.py b/sqlglot/expressions/core.py
+index 0000000..1111111 100644
+--- a/sqlglot/expressions/core.py
++++ b/sqlglot/expressions/core.py
+@@ -1942,7 +1942,7 @@
+ 
+ 
+ class Alias(Expression):
+-    arg_types = {"this": True, "alias": False}
++    arg_types = {"this": True, "alias": True}
+ 
+     @property
+     def output_name(self) -> str:

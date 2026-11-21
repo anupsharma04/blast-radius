@@ -21,6 +21,7 @@ import heapq
 import json
 import os
 import re
+import subprocess
 import sys
 
 APP = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +40,16 @@ RISKY_HEADERS = ("new file mode", "deleted file mode", "rename from", "rename to
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 RUN_ALL = None   # marker meaning "run every test"
+# Fingerprints of the original sqlglot's class constants, made by
+# `valuecheck.py baseline` during the docker build (see Dockerfile).
+BASELINE = os.environ.get("BLAST_BASELINE", os.path.join(APP, "baseline.json.gz"))
+
+
+class ValueOnly:
+    """A changed file where only class/module constant VALUES changed."""
+
+    def __init__(self, path, new_text, observers):
+        self.path, self.new_text, self.observers = path, new_text, observers
 
 
 def log(*args):
@@ -177,6 +188,7 @@ class Selector:
         self.always = {number_of_id[tid] for tid in number_of_id if tid not in known}
 
         self._sources, self._cov = {}, {}
+        self._attrs = None
 
     def numbers_from_mask(self, mask_hex_or_int):
         m = int(mask_hex_or_int, 16) if isinstance(mask_hex_or_int, str) else mask_hex_or_int
@@ -232,6 +244,8 @@ class Selector:
             try:
                 mask = ca.affected_mask(self.source_info(path), fd["hunks"], self.coverage(path))
                 return self.numbers_from_mask(mask) | observers
+            except ca.ValueChange as e:
+                return ValueOnly(path, e.new_text, observers)   # decided in select()
             except ca.FileLevel as e:
                 log(f"    {path}: file level ({e})")
                 fl = self.file_level(path)
@@ -243,16 +257,71 @@ class Selector:
             return self.numbers_from_mask(self.fixtures[path])
         return self.file_level(path)
 
+    def attrs(self):
+        """Class constant -> tests that read it (maps/attrs.json.gz)."""
+        if self._attrs is None:
+            with gzip.open(os.path.join(MAPS, "attrs.json.gz"), "rt") as f:
+                data = json.load(f)
+            self._attrs = (data["sets"], data["pairs"], set(data["tracked"]))
+        return self._attrs
+
+    def value_tests(self, files):
+        """Tests that read a class constant the patch really changed, or
+        None if that can't be decided safely (-> file level)."""
+        if not os.path.exists(BASELINE):
+            return None
+        try:
+            p = subprocess.run(
+                [sys.executable, "-s", os.path.join(APP, "valuecheck.py"), "check", SRC, BASELINE],
+                input=json.dumps(files), capture_output=True, text=True, timeout=60,
+                env=dict(os.environ, PYTHONHASHSEED="0", PYTHONDONTWRITEBYTECODE="1"))
+            res = json.loads(p.stdout)
+        except Exception as e:                      # noqa: BLE001
+            log(f"    value check failed: {e!r}")
+            return None
+        if not res.get("ok"):
+            log(f"    value check: {res.get('why')}")
+            return None
+        sets, pairs, tracked = self.attrs()
+        mask = 0
+        for key in res["changed"]:
+            name = key[2:]                          # "A|module:Class|ATTR"
+            if not key.startswith("A|") or name not in tracked:
+                log(f"    value check: {key} is not tracked")
+                return None
+            if name in pairs:                       # absent = no test read it
+                mask |= int(sets[pairs[name]], 16)
+        log(f"    value check: changed {[k[2:] for k in res['changed']]}")
+        return self.numbers_from_mask(mask)
+
     def select(self, patch_text):
         files = parse_patch(patch_text)
         if files is RUN_ALL:
             return RUN_ALL
         chosen = set(self.always)
+        value_only = []
         for fd in files:
             t = self.tests_for_file(fd)
             if t is RUN_ALL:
                 return RUN_ALL
+            if isinstance(t, ValueOnly):
+                value_only.append(t)
+                continue
             chosen |= t
+        if value_only:
+            # One check for all such files of this commit together.
+            for v in value_only:
+                chosen |= v.observers
+            found = self.value_tests({v.path: v.new_text for v in value_only})
+            if found is None:
+                for v in value_only:
+                    log(f"    {v.path}: file level (constant values changed)")
+                    fl = self.file_level(v.path)
+                    if fl is RUN_ALL:
+                        return RUN_ALL
+                    chosen |= fl
+            else:
+                chosen |= found
         return chosen
 
 

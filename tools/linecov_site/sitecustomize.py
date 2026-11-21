@@ -91,6 +91,7 @@ if _DIR:
 
     def _write():
         _mon.set_events(_TOOL, 0)
+        _mon.set_events(_ATTR_TOOL, 0)
         lines = {}
         for filename, nums in _lines.items():
             rel = _rel(filename)
@@ -103,11 +104,105 @@ if _DIR:
                     and os.path.isfile(os.path.join(_ROOT, rel)):
                 opened.add(rel)
         observed = sorted(r for r in map(_rel, _observed) if r)
+        # "wrapped": constants we could watch in this process. "clobbered":
+        # ones that something replaced before we saw a read (we can't vouch
+        # for their readers, so the map marks them untrackable).
+        wrapped = sorted({r.key for r in _wrapped})
+        clobbered = sorted({r.key for r in _wrapped
+                            if not r.restored and r.cls.__dict__.get(r.name) is not r})
         with open(os.path.join(_DIR, f"{os.getpid()}.json"), "w") as f:
-            json.dump({"lines": lines, "opened": sorted(opened), "observed": observed}, f)
+            json.dump({"lines": lines, "opened": sorted(opened), "observed": observed,
+                       "attrs": sorted(_attrs), "wrapped": wrapped,
+                       "clobbered": clobbered}, f)
+
+    def _on_start(code, offset):
+        # LINE events only fire when execution MOVES to a different line, so
+        # a one-line lambda (`lambda self, e: ...`) never produces one: it
+        # starts and finishes on the same line. PY_START fires whenever a
+        # code object starts running; record the line it starts on.
+        if code.co_flags & inspect.CO_OPTIMIZED and code.co_filename.startswith(_SQLGLOT):
+            for _, _, line in code.co_lines():
+                if line is not None:
+                    _lines.setdefault(code.co_filename, set()).add(line)
+                    break
+        return _mon.DISABLE
+
+    # ------------------------------------------------------------------
+    # Class-constant reads (see valuemap.py at the repo root).
+    # When a sqlglot module finishes importing, every plain-data class
+    # attribute (TSQL.WEEK_OFFSET, Parser.FUNCTIONS, ...) is replaced by a
+    # _Rec descriptor. Reading it returns the SAME value; the first read
+    # that is not part of importing sqlglot records "(class, attribute)"
+    # and puts the original value back (so later reads cost nothing).
+    # ------------------------------------------------------------------
+    import importlib.util
+
+    _spec = importlib.util.spec_from_file_location(
+        "_blast_valuemap",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "valuemap.py"))
+    _vm = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_vm)
+    _attrs = set()
+    _wrapped = []            # every _Rec we installed
+    _getframe = sys._getframe
+
+    def _importing_sqlglot():
+        # True while the module-level code of some sqlglot file is running
+        # (import time). Those reads only feed values that get stored
+        # somewhere, and the runtime check compares everything stored.
+        f = _getframe(2)
+        while f is not None:
+            c = f.f_code
+            if c.co_name == "<module>" and c.co_filename.startswith(_SQLGLOT):
+                return True
+            f = f.f_back
+        return False
+
+    class _Rec:
+        __slots__ = ("cls", "name", "value", "key", "restored")
+
+        def __init__(self, cls, name, value):
+            self.cls, self.name, self.value = cls, name, value
+            self.key = _vm.class_key(cls) + "|" + name
+            self.restored = False
+
+        def __get__(self, obj, owner=None):
+            if not self.restored and not _importing_sqlglot():
+                _attrs.add(self.key)
+                self.restored = True
+                type.__setattr__(self.cls, self.name, self.value)   # restore
+            return self.value
+
+    def _wrap_module(module):
+        for cls in _vm.module_classes(module):
+            for name, value in list(cls.__dict__.items()):
+                if _vm.trackable(cls, name, value):
+                    rec = _Rec(cls, name, value)
+                    try:
+                        type.__setattr__(cls, name, rec)
+                    except (TypeError, AttributeError):
+                        continue
+                    _wrapped.append(rec)
+
+    _ATTR_TOOL = 3
+
+    def _on_return(code, offset, retval):
+        if code.co_name != "<module>" or not code.co_filename.startswith(_SQLGLOT):
+            return _mon.DISABLE
+        for mod in list(sys.modules.values()):
+            if getattr(mod, "__file__", None) == code.co_filename:
+                _wrap_module(mod)
+                break
+        return None
+
+    _mon.use_tool_id(_ATTR_TOOL, "blast-radius-attrs")
+    _mon.register_callback(_ATTR_TOOL, _mon.events.PY_RETURN, _on_return)
+    _mon.set_events(_ATTR_TOOL, _mon.events.PY_RETURN)
 
     _mon.use_tool_id(_TOOL, "blast-radius")
     _mon.register_callback(_TOOL, _mon.events.LINE, _on_line)
-    _mon.set_events(_TOOL, _mon.events.LINE)
+    _mon.register_callback(_TOOL, _mon.events.PY_START, _on_start)
+    _mon.set_events(_TOOL, _mon.events.LINE | _mon.events.PY_START)
     sys.addaudithook(_audit)
     atexit.register(_write)

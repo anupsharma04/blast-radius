@@ -66,7 +66,8 @@ def run_one(index, test_id, seed, tmp):
     with open(out) as f:
         outcomes = json.load(f)
     # Merge every process's record into one.
-    lines, opened, observed, n_procs = {}, set(), set(), 0
+    lines, opened, observed, attrs, n_procs = {}, set(), set(), set(), 0
+    wrapped, clobbered = set(), set()
     for name in os.listdir(run_dir):
         if name == "outcomes.json":
             continue
@@ -77,10 +78,15 @@ def run_one(index, test_id, seed, tmp):
             lines.setdefault(path, set()).update(nums)
         opened.update(r["opened"])
         observed.update(r["observed"])
+        attrs.update(r.get("attrs", ()))
+        wrapped.update(r.get("wrapped", ()))
+        clobbered.update(r.get("clobbered", ()))
     shutil.rmtree(run_dir)
     if n_procs == 0:
         raise SystemExit(f"no line records for {test_id} (sitecustomize not loaded?)")
-    rec = {"lines": lines, "opened": opened, "observed": observed, "outcomes": outcomes,
+    rec = {"lines": lines, "opened": opened, "observed": observed, "attrs": attrs,
+           "wrapped": wrapped, "clobbered": clobbered,
+           "outcomes": outcomes,
            "procs": n_procs}
     return index, test_id, seed, rec
 
@@ -110,6 +116,8 @@ def main():
     line_masks = {}      # "sqlglot/x.py" -> {line: bitmask}
     fixture_masks = {}   # "tests/fixtures/..." -> bitmask
     observer_masks = {}  # "sqlglot/x.py" -> tests that read its text / code objects
+    attr_masks = {}      # "module:Class|ATTR" -> tests that read that class constant
+    all_wrapped, all_clobbered = set(), set()
     bad = []
     started = time.time()
     with ThreadPoolExecutor(args.jobs) as pool:
@@ -123,6 +131,10 @@ def main():
                 fixture_masks[path] = fixture_masks.get(path, 0) | bit
             for path in rec["observed"]:
                 observer_masks[path] = observer_masks.get(path, 0) | bit
+            all_wrapped |= rec["wrapped"]
+            all_clobbered |= rec["clobbered"]
+            for key in rec["attrs"]:
+                attr_masks[key] = attr_masks.get(key, 0) | bit
             outcome = rec["outcomes"].get(tid)
             if outcome != "passed":
                 bad.append((seed, tid, outcome))
@@ -167,6 +179,19 @@ def main():
             with gzip.open(os.path.join(cov_dir, cov_filename(rel)), "wt") as f:
                 json.dump({"sets": sets, "lines": lines}, f, separators=(",", ":"))
 
+    # Class-constant readers (valuemap.py): same "interning" as above.
+    sets, set_index, pairs = [], {}, {}
+    for key, m in sorted(attr_masks.items()):
+        if m not in set_index:
+            set_index[m] = len(sets)
+            sets.append(format(m, "x"))
+        pairs[key] = set_index[m]
+    with gzip.open(os.path.join(args.out, "attrs.json.gz"), "wt") as f:
+        json.dump({"sets": sets, "pairs": pairs,
+                   # constants the recorder really watched (and nothing replaced)
+                   "tracked": sorted(all_wrapped - all_clobbered)},
+                  f, separators=(",", ":"))
+
     index = {
         "commit": "eb11aec4be8cb2122afe713a4816662c3f0fb2fa",
         "seeds": seeds,
@@ -180,7 +205,7 @@ def main():
     log(f"done in {time.time() - started:.0f}s: {len(files)} source files, "
         f"{kept}/{total} covered lines kept, {len(fixture_masks)} fixture files, "
         f"observers: { {p: bin(m).count('1') for p, m in observer_masks.items()} }, "
-        f"{len(bad)} non-passing runs")
+        f"{len(attr_masks)} class constants read, {len(bad)} non-passing runs")
 
 
 if __name__ == "__main__":
