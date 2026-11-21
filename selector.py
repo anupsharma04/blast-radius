@@ -1,64 +1,133 @@
 """
-Blast Radius selector - version 2 (file-level dependency map)
+Blast Radius selector - version 3 (line-level coverage + file-level fallback)
 
-For each patch:
-  1. Find which files it changes.
-  2. Look each one up in maps/deps.json (built once by tools/build_map.py),
-     which says which TEST FILES used that file when the tests ran
-     (imported it, even lazily, or opened it as a fixture).
-  3. Run every test in those test files. If anything about the patch is
-     unusual or unknown, run ALL tests instead: a missed failing test costs
-     300 s, far more than running everything (~29 s).
-  4. Split the chosen tests across the best number of workers (as in v1).
+For each patch, for each changed file:
+  * sqlglot/*.py  -> line level (change_analysis.py): only tests that ran
+                     the changed statements/functions. If the change is
+                     risky (outside function bodies, comment-only, syntax
+                     error, ...) -> file level.
+  * fixture files -> tests that opened that fixture (per-test record).
+  * otherwise     -> file level: every test in the test files that used the
+                     file (maps/deps.json, Step 2).
+  * anything unknown or odd (new/deleted/renamed/binary files, __init__.py,
+    conftest.py, config files, patch doesn't apply) -> ALL tests.
+A missed failing test costs 300 s, so every doubt resolves to running more.
 
+Then the chosen tests are split across the best number of workers (as v1).
 Logs go to stderr; stdout is only the JSON answer lines.
 """
+import gzip
 import heapq
 import json
 import os
+import re
 import sys
 
-DATA = "/data"
-MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", "deps.json")
+APP = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, APP)
+import change_analysis as ca  # noqa: E402
 
-# File names that affect how many tests run/import, so any change -> run all.
+DATA = os.environ.get("BLAST_DATA", "/data")
+MAPS = os.path.join(APP, "maps")
+# Original sqlglot sources at the pinned commit (downloaded in the Dockerfile).
+SRC = os.environ.get("BLAST_SRC", os.path.join(APP, "src"))
+
 RISKY_NAMES = {"__init__.py", "conftest.py"}
-
-# Diff header lines that mean "not a simple edit of an existing file".
 RISKY_HEADERS = ("new file mode", "deleted file mode", "rename from", "rename to",
                  "copy from", "copy to", "old mode", "new mode", "Binary files",
-                 "GIT binary patch")
+                 "GIT binary patch", "similarity index")
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+RUN_ALL = None   # marker meaning "run every test"
 
 
 def log(*args):
     print(*args, file=sys.stderr)
 
 
-def load_tests():
-    # tests.json -> list of (file, duration in ms, test number)
-    with open(os.path.join(DATA, "tests.json")) as f:
-        tests = json.load(f)["tests"]
-    return [(t["file"], round(t["seconds"] * 1000), t["number"]) for t in tests]
+# ---------------------------------------------------------------- patches
 
+def parse_patch(text):
+    """Split a unified diff into files. Returns a list of
+    {"path": str, "hunks": [(old_start, old_count, [lines])]},
+    or RUN_ALL if anything looks unusual."""
+    lines = text.splitlines()
+    files, i = [], 0
+    while i < len(lines):
+        if not lines[i].startswith("diff --git "):
+            if lines[i].strip():
+                return RUN_ALL                      # text we don't understand
+            i += 1
+            continue
+        i += 1
+        old = new = None
+        # Header lines until the first hunk or the next file.
+        while i < len(lines) and not lines[i].startswith(("@@", "diff --git ")):
+            line = lines[i]
+            if line.startswith(RISKY_HEADERS):
+                return RUN_ALL
+            if line.startswith("--- "):
+                old = line[4:].split("\t")[0]
+            elif line.startswith("+++ "):
+                new = line[4:].split("\t")[0]
+            i += 1
+        if old is None or new is None or "/dev/null" in (old, new):
+            return RUN_ALL                          # created/deleted/mode-only
+        if not (old.startswith("a/") and new.startswith("b/")) or old[2:] != new[2:]:
+            return RUN_ALL                          # renamed or odd paths
+        hunks = []
+        while i < len(lines) and lines[i].startswith("@@"):
+            m = HUNK_RE.match(lines[i])
+            if not m:
+                return RUN_ALL
+            old_start, old_count = int(m.group(1)), int(m.group(2) or 1)
+            new_count = int(m.group(4) or 1)
+            i += 1
+            body, o, n = [], old_count, new_count
+            # Use the hunk's line counts to know where it ends (a removed
+            # SQL comment "-- x" appears as "--- x", so we can't guess).
+            while o > 0 or n > 0:
+                if i >= len(lines):
+                    return RUN_ALL
+                line = lines[i]
+                tag = line[:1]
+                if tag == " " or line == "":
+                    o, n = o - 1, n - 1
+                    line = " " + line[1:]
+                elif tag == "-":
+                    o -= 1
+                elif tag == "+":
+                    n -= 1
+                elif tag != "\\":
+                    return RUN_ALL
+                body.append(line)
+                i += 1
+            while i < len(lines) and lines[i].startswith("\\"):
+                i += 1                              # "\ No newline at end of file"
+            hunks.append((old_start, old_count, body))
+        if not hunks:
+            return RUN_ALL
+        files.append({"path": new[2:], "hunks": hunks})
+    return files or RUN_ALL
+
+
+# ---------------------------------------------------------------- workers
 
 def split_into_workers(tests, k):
-    # Greedy balancing: take the longest test first and give it to
-    # whichever worker currently has the least total time.
+    # Greedy balancing: longest test first, to the least-loaded worker.
     heap = [(0, i) for i in range(k)]          # (load in ms, worker index)
     workers = [[] for _ in range(k)]
     for ms, num in sorted(tests, reverse=True):
         load, i = heapq.heappop(heap)
         workers[i].append(num)
         heapq.heappush(heap, (load + ms, i))
-    max_load = max(load for load, _ in heap)
-    return workers, max_load
+    return workers, max(load for load, _ in heap)
 
 
 def best_split(tests):
-    # tests: list of (ms, number). Try 1..8 workers and keep the cheapest:
-    # cost = slowest worker + 2 seconds (2000 ms) per worker
+    # Try 1..8 workers; cost = slowest worker + 2000 ms per worker.
     if not tests:
-        return []                               # running nothing costs 0
+        return []
     best_cost, best_workers = None, []
     for k in range(1, min(8, len(tests)) + 1):
         workers, max_load = split_into_workers(tests, k)
@@ -68,85 +137,135 @@ def best_split(tests):
     return [w for w in best_workers if w]
 
 
-def changed_paths(patch_text):
-    """Return (set of repo paths the patch touches, risky flag).
-    risky=True means: don't trust the map, run everything."""
-    paths, risky = set(), False
-    for line in patch_text.splitlines():
-        if line.startswith("diff --git "):
-            # "diff --git a/X b/Y": record both sides (they differ on renames).
-            parts = line.split()
-            if len(parts) != 4:
-                risky = True                    # e.g. spaces in names: be safe
-            for p in parts[2:]:
-                paths.add(p[2:] if p[:2] in ("a/", "b/") else p)
-        elif line.startswith(("--- ", "+++ ")):
-            p = line[4:].split("\t")[0].strip()
-            if p == "/dev/null":
-                risky = True                    # file created or deleted
-            else:
-                paths.add(p[2:] if p[:2] in ("a/", "b/") else p)
-        elif line.startswith(RISKY_HEADERS):
-            risky = True
-    if not paths:
-        risky = True                            # couldn't understand the patch
-    return paths, risky
+# ---------------------------------------------------------------- selector
 
+class Selector:
+    def __init__(self):
+        with open(os.path.join(DATA, "tests.json")) as f:
+            tests = json.load(f)["tests"]
+        self.ms = {t["number"]: round(t["seconds"] * 1000) for t in tests}
+        self.all_numbers = set(self.ms)
+        number_of_id = {t["id"]: t["number"] for t in tests}
 
-def affected_test_files(paths, deps):
-    """Return the set of test files to run, or None meaning 'run all'."""
-    selected = set()
-    for path in paths:
+        with open(os.path.join(MAPS, "deps.json")) as f:
+            dep_map = json.load(f)
+        self.deps = dep_map["deps"]
+        tests_by_file = {}
+        for t in tests:
+            tests_by_file.setdefault(t["file"], set()).add(t["number"])
+        self.tests_by_file = tests_by_file
+
+        with open(os.path.join(MAPS, "linemap_index.json")) as f:
+            idx = json.load(f)
+        # bit i of a coverage mask = idx["test_ids"][i] -> test number here
+        self.bit_to_number = [number_of_id.get(tid) for tid in idx["test_ids"]]
+        self.line_files = set(idx["files"])
+        self.fixtures = idx["fixtures"]
+
+        # Safety net: tests the maps have never seen are always run.
+        known = set(idx["test_ids"]) & set(t["id"] for t in tests
+                                         if t["file"] in dep_map["test_files"])
+        self.always = {number_of_id[tid] for tid in number_of_id if tid not in known}
+
+        self._sources, self._cov = {}, {}
+
+    def numbers_from_mask(self, mask_hex_or_int):
+        m = int(mask_hex_or_int, 16) if isinstance(mask_hex_or_int, str) else mask_hex_or_int
+        out, i = set(), 0
+        while m:
+            if m & 1:
+                n = self.bit_to_number[i]
+                if n is not None:
+                    out.add(n)
+            m >>= 1
+            i += 1
+        return out
+
+    def file_level(self, path):
+        """Step 2: all tests in test files that used `path` (None = all)."""
+        if path not in self.deps:
+            return RUN_ALL
+        out = set()
+        for tf in self.deps[path]:
+            out |= self.tests_by_file.get(tf, set())
+        return out
+
+    def source_info(self, path):
+        if path not in self._sources:
+            with open(os.path.join(SRC, path), encoding="utf-8") as f:
+                self._sources[path] = ca.SourceInfo(f.read(), path)
+        return self._sources[path]
+
+    def coverage(self, path):
+        if path not in self._cov:
+            cov = {}
+            cov_path = os.path.join(MAPS, "cov", path.replace("/", "__") + ".json.gz")
+            if os.path.exists(cov_path):       # no file = no test ran its functions
+                with gzip.open(cov_path, "rt") as f:
+                    data = json.load(f)
+                sets = [int(s, 16) for s in data["sets"]]
+                cov = {ln: sets[k] for ln, k in data["lines"]}
+            self._cov[path] = cov
+        return self._cov[path]
+
+    def tests_for_file(self, fd):
+        """Tests to run because of one changed file (RUN_ALL = everything)."""
+        path = fd["path"]
         name = path.rsplit("/", 1)[-1]
-        if name in RISKY_NAMES:
-            return None
-        # Only source and test files are in the map; anything else
-        # (pyproject.toml, setup.py, Makefile, CI config, ...) -> run all.
-        if not path.startswith(("sqlglot/", "tests/")):
-            return None
-        if path not in deps:
-            return None                         # unknown file: be safe
-        selected.update(deps[path])
-    return selected
+        if name in RISKY_NAMES or not path.startswith(("sqlglot/", "tests/")):
+            return RUN_ALL
+        if path not in self.deps:
+            return RUN_ALL                         # unknown file
+        if path.startswith("sqlglot/") and path.endswith(".py") and path in self.line_files:
+            try:
+                mask = ca.affected_mask(self.source_info(path), fd["hunks"], self.coverage(path))
+                return self.numbers_from_mask(mask)
+            except ca.FileLevel as e:
+                log(f"    {path}: file level ({e})")
+                return self.file_level(path)
+            except ca.PatchError as e:
+                log(f"    {path}: patch does not apply ({e}) -> all")
+                return RUN_ALL
+        if path in self.fixtures:
+            return self.numbers_from_mask(self.fixtures[path])
+        return self.file_level(path)
+
+    def select(self, patch_text):
+        files = parse_patch(patch_text)
+        if files is RUN_ALL:
+            return RUN_ALL
+        chosen = set(self.always)
+        for fd in files:
+            t = self.tests_for_file(fd)
+            if t is RUN_ALL:
+                return RUN_ALL
+            chosen |= t
+        return chosen
 
 
 def main():
-    tests = load_tests()
-    all_tests = [(ms, num) for _, ms, num in tests]
-    with open(MAP_PATH) as f:
-        dep_map = json.load(f)
-    deps = dep_map["deps"]
-    mapped_files = set(dep_map["test_files"])
-
-    # Tests in files the map has never seen get run every time (extra safety
-    # in case tests.json ever lists a test file we did not record).
-    always = [(ms, num) for file, ms, num in tests if file not in mapped_files]
-
+    sel = Selector()
     commits_dir = os.path.join(DATA, "commits")
     commits = sorted(f[:-6] for f in os.listdir(commits_dir) if f.endswith(".patch"))
-
-    all_split = best_split(all_tests)           # reused for every "run all"
+    all_split = None
     out = []
-    n_all = 0
     for c in commits:
         try:
             with open(os.path.join(commits_dir, c + ".patch"), encoding="utf-8",
                       errors="replace") as f:
-                paths, risky = changed_paths(f.read())
-            files = None if risky else affected_test_files(paths, deps)
-        except Exception as e:                  # never crash: fall back to all
+                chosen = sel.select(f.read())
+        except Exception as e:                      # never crash: run everything
             log(f"{c}: error {e!r}, running all")
-            files = None
-
-        if files is None:
+            chosen = RUN_ALL
+        if chosen is RUN_ALL:
+            if all_split is None:
+                all_split = best_split([(ms, n) for n, ms in sel.ms.items()])
             workers = all_split
-            n_all += 1
+            log(f"{c}: ALL tests")
         else:
-            chosen = [(ms, num) for file, ms, num in tests if file in files]
-            workers = best_split(chosen + always)
+            workers = best_split([(sel.ms[n], n) for n in chosen])
+            log(f"{c}: {len(chosen)} tests")
         out.append(json.dumps({"commit": c, "workers": workers}, separators=(",", ":")))
-
-    log(f"{len(commits)} commits, {len(tests)} tests, {n_all} ran everything")
     sys.stdout.write("\n".join(out) + "\n")
 
 
